@@ -27,17 +27,26 @@ function render() {
   $('screen-busy').hidden = state.phase !== 'transcribing' && state.phase !== 'cleaning';
   $('screen-interrupted').hidden = state.phase !== 'interrupted';
   $('screen-result').hidden = state.phase !== 'result';
-  $('settings').hidden = state.phase !== 'idle';
+  $('settings').hidden = state.phase !== 'idle' && !state.error;
 
   $('btn-record').disabled = !hasApiKey();
   $('idle-hint').textContent = hasApiKey()
     ? 'Up to 5 minutes'
     : 'Add your OpenAI API key in Settings first';
+  if (state.phase === 'idle') {
+    // Reflects saved-key state on load and on every idle render. This also
+    // overwrites the save handler's one-shot "Key cleared" message on the
+    // very next render — acceptable, since hasApiKey() === false already
+    // implies no key is saved.
+    $('key-status').textContent = hasApiKey() ? 'Key saved ✓' : '';
+  }
 
   if (state.phase === 'transcribing' || state.phase === 'cleaning') {
     $('busy-label').textContent = state.phase === 'transcribing' ? 'Transcribing…' : 'Cleaning up…';
     $('busy-error').hidden = !state.error;
     $('busy-error-msg').textContent = state.error || '';
+    $('busy-spinner').hidden = !!state.error;
+    $('busy-label').hidden = !!state.error;
   }
 
   if (state.phase === 'result') {
@@ -129,7 +138,8 @@ $('btn-stop').onclick = async () => {
     dispatch({ type: 'RECORD_STOP', blob });
     runTranscription();
   } else {
-    dispatch({ type: 'RESET' }); // auto-stop already handled it, or nothing captured
+    alert('Nothing was recorded.');
+    dispatch({ type: 'RESET' }); // nothing was captured
   }
 };
 
@@ -165,12 +175,14 @@ $('btn-retry-cleanup').onclick = () => {
   runCleanup();
 };
 
+let copyFeedbackTimer = null;
 $('btn-copy').onclick = async () => {
   const ok = await copyText($('result-text').value);
   const fb = $('copy-feedback');
   fb.textContent = ok ? 'Copied ✓ — paste it into your chat' : 'Copy failed — long-press the text and copy manually';
   fb.hidden = false;
-  setTimeout(() => { fb.hidden = true; }, 2500);
+  if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer);
+  copyFeedbackTimer = setTimeout(() => { fb.hidden = true; }, 2500);
 };
 
 $('btn-new').onclick = () => dispatch({ type: 'RESET' });

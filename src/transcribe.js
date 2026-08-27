@@ -16,6 +16,7 @@ export async function transcribe(blob, apiKey) {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}` },
       body: form,
+      signal: AbortSignal.timeout(120000),
     });
   } catch (err) {
     throw new TranscriptionError(`Network error: ${err.message}`);

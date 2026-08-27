@@ -40,11 +40,13 @@ export async function cleanup(text, language, apiKey) {
       },
       body: JSON.stringify({
         model: CLEANUP_MODEL,
+        temperature: 0.3,
         messages: [
           { role: 'system', content: buildSystemPrompt(language) },
           { role: 'user', content: text },
         ],
       }),
+      signal: AbortSignal.timeout(120000),
     });
   } catch (err) {
     throw new CleanupError(`Network error: ${err.message}`);

@@ -1,5 +1,5 @@
 // Detects the dominant script of a transcript. Deterministic — never asks the LLM.
-const HEBREW_RE = /[֐-׿]/g;
+const HEBREW_RE = /[\u0590-\u05FF]/g;
 const LATIN_RE = /[A-Za-z]/g;
 
 export function detectLanguage(text) {
