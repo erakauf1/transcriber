@@ -8,6 +8,7 @@ export function createRecorder({ onTick, onLevel, onAutoStop } = {}) {
   let tickInterval = null;
   let levelRaf = null;
   let audioCtx = null;
+  let pendingStop = null;
 
   function pickMimeType() {
     // iOS Safari records AAC in an MP4 container; webm is the Chrome/Firefox path.
@@ -16,6 +17,13 @@ export function createRecorder({ onTick, onLevel, onAutoStop } = {}) {
   }
 
   async function start() {
+    if (mediaRecorder) {
+      // A recording is already in flight (or its stop() hasn't torn down yet).
+      // Without this guard a second start() orphans the old stream's tracks,
+      // stomps tickInterval without clearing the old one, and leaks a second
+      // AudioContext + rAF loop.
+      throw new Error('Recorder already started');
+    }
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     chunks = [];
     const mimeType = pickMimeType();
@@ -29,6 +37,12 @@ export function createRecorder({ onTick, onLevel, onAutoStop } = {}) {
       const elapsed = Date.now() - startedAt;
       onTick?.(elapsed);
       if (elapsed >= MAX_DURATION_MS) {
+        // Stop ticking now. mediaRecorder.state flips to 'inactive' synchronously
+        // inside stop() below, but the real dataavailable/stop events are still
+        // async — without clearing the interval here, the next 250ms tick would
+        // see elapsed >= MAX_DURATION_MS again and re-enter this branch before
+        // the in-flight stop() has settled, firing onAutoStop a second time.
+        clearInterval(tickInterval);
         stop().then((blob) => { if (blob) onAutoStop?.(blob); });
       }
     }, 250);
@@ -70,10 +84,24 @@ export function createRecorder({ onTick, onLevel, onAutoStop } = {}) {
   }
 
   function stop() {
-    return new Promise((resolve) => {
+    // A stop is already in flight: mediaRecorder.state flips to 'inactive'
+    // synchronously the moment our own stop() calls mediaRecorder.stop(), but the
+    // real dataavailable/stop events (and therefore drainChunks/teardown) only
+    // happen once the browser fires them asynchronously. A second, concurrent
+    // stop() call (from the tick interval racing itself, or a manual stop landing
+    // in that same window) must not treat that synchronous 'inactive' as "already
+    // dead" and take the salvage branch early — that would drain the chunks
+    // gathered so far and miss the tail chunk still to come. Instead, share the
+    // one in-flight promise so every caller gets the same, single, complete blob.
+    if (pendingStop) return pendingStop;
+
+    pendingStop = new Promise((resolve) => {
       if (!mediaRecorder || mediaRecorder.state === 'inactive') {
-        // Already stopped (double-stop, or iOS killed it in the background):
-        // return whatever the 1s timeslices managed to capture.
+        // No stop of ours is in flight (checked above), so this is a genuinely
+        // dead recorder — e.g. iOS killed it in the background, or a prior
+        // stop() already ran to completion (double-stop) — not our own stop()
+        // racing its own onstop event. Return whatever the 1s timeslices
+        // managed to capture.
         const blob = drainChunks(chunks[0]?.type || 'audio/mp4');
         teardown();
         resolve(blob);
@@ -86,7 +114,11 @@ export function createRecorder({ onTick, onLevel, onAutoStop } = {}) {
         resolve(blob);
       };
       mediaRecorder.stop();
+    }).finally(() => {
+      pendingStop = null;
     });
+
+    return pendingStop;
   }
 
   function isRecording() {
