@@ -2,11 +2,67 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#4f46e5" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/icons/icon-180.png" />
   <title>Voice Note</title>
   <link rel="stylesheet" href="/src/styles.css" />
 </head>
 <body>
-  <main id="app"><p>Voice Note — scaffold</p></main>
+  <main id="app">
+    <section id="screen-idle" hidden>
+      <button id="btn-record" class="big-btn">🎤 Record</button>
+      <p id="idle-hint"></p>
+    </section>
+
+    <section id="screen-recording" hidden>
+      <div id="level-meter"><div id="level-bar"></div></div>
+      <div id="timer">0:00</div>
+      <button id="btn-stop" class="big-btn stop">■ Stop</button>
+    </section>
+
+    <section id="screen-busy" hidden>
+      <div class="spinner"></div>
+      <p id="busy-label"></p>
+      <div id="busy-error" hidden>
+        <p id="busy-error-msg" class="error"></p>
+        <button id="btn-retry-transcribe">Retry transcription</button>
+        <button id="btn-cancel" class="secondary">Cancel</button>
+      </div>
+    </section>
+
+    <section id="screen-interrupted" hidden>
+      <p>Recording was interrupted (the app went to the background).</p>
+      <button id="btn-use-partial">Transcribe what was captured</button>
+      <button id="btn-discard" class="secondary">Discard</button>
+    </section>
+
+    <section id="screen-result" hidden>
+      <div id="cleanup-error" hidden>
+        <p class="error">Cleanup failed — showing the raw transcript.</p>
+        <button id="btn-retry-cleanup">Retry cleanup</button>
+      </div>
+      <textarea id="result-text" dir="auto" rows="10"></textarea>
+      <button id="btn-copy" class="big-btn">Copy</button>
+      <p id="copy-feedback" hidden></p>
+      <details id="raw-details">
+        <summary>Raw transcript</summary>
+        <p id="raw-text" dir="auto"></p>
+      </details>
+      <button id="btn-new" class="secondary">New recording</button>
+    </section>
+
+    <details id="settings">
+      <summary>⚙️ Settings</summary>
+      <label for="api-key">OpenAI API key</label>
+      <input id="api-key" type="password" autocomplete="off" placeholder="sk-..." />
+      <button id="btn-save-key">Save</button>
+      <p id="key-status"></p>
+    </details>
+  </main>
+  <script type="module" src="/src/app.js"></script>
 </body>
 </html>
