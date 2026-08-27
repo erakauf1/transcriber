@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>Spike checks</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; padding: 1rem; }
+    button { display: block; width: 100%; padding: 1rem; margin: 0.5rem 0; font-size: 1.1rem; }
+    pre { background: #eee; padding: 0.5rem; white-space: pre-wrap; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h1>Spike checks</h1>
+  <p>Standalone (home-screen) mode: <b id="standalone"></b></p>
+  <button id="mic">1. Test microphone (records 2s)</button>
+  <button id="cors">2. Test OpenAI CORS (asks for API key)</button>
+  <pre id="out"></pre>
+  <script>
+    const out = (msg) => { document.getElementById('out').textContent += msg + '\n'; };
+    document.getElementById('standalone').textContent = window.navigator.standalone ? 'YES' : 'no (open from home screen icon)';
+
+    document.getElementById('mic').onclick = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const rec = new MediaRecorder(stream);
+        const chunks = [];
+        rec.ondataavailable = (e) => chunks.push(e.data);
+        rec.onstop = () => {
+          const blob = new Blob(chunks, { type: rec.mimeType });
+          stream.getTracks().forEach((t) => t.stop());
+          out(`MIC OK — mimeType=${rec.mimeType || '(default)'} size=${blob.size} bytes`);
+        };
+        rec.start();
+        out('Recording 2 seconds…');
+        setTimeout(() => rec.stop(), 2000);
+      } catch (err) {
+        out(`MIC FAILED — ${err.name}: ${err.message}`);
+      }
+    };
+
+    document.getElementById('cors').onclick = async () => {
+      const key = prompt('Paste OpenAI API key (used once, not stored):');
+      if (!key) return;
+      try {
+        const res = await fetch('https://api.openai.com/v1/models', {
+          headers: { Authorization: 'Bearer ' + key.trim() },
+        });
+        out(res.ok ? 'CORS OK — status 200' : `CORS reachable but status ${res.status} (bad key?)`);
+      } catch (err) {
+        out(`CORS FAILED — ${err.message}`);
+      }
+    };
+  </script>
+</body>
+</html>
