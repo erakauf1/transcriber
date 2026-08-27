@@ -69,10 +69,31 @@ async function runCleanup() {
 }
 
 $('btn-record').onclick = async () => {
+  // Reentrancy guard: getUserMedia() latency leaves a window where the idle
+  // screen (and this button) is still visible before RECORD_START flips the
+  // phase and render() hides it. Without this check a double-tap here would
+  // call createRecorder() a second time and overwrite the module-level
+  // `recorder`, orphaning the first one's live mic stream, AudioContext/rAF
+  // loop, and tick interval — unreachable forever, and its own 5:00 auto-stop
+  // would later fire a stale dispatch onto whatever screen the user is on.
+  // `recorder` is set synchronously below, before the first `await`, so a
+  // second click landing while this one is still in flight sees it non-null
+  // and bails before touching createRecorder() again.
+  if (recorder) return;
+  $('btn-record').disabled = true;
   recorder = createRecorder({
     onTick: (ms) => { $('timer').textContent = fmt(ms); },
     onLevel: (v) => { $('level-bar').style.width = `${Math.min(100, v * 140)}%`; },
     onAutoStop: (blob) => {
+      // This recorder instance's life is over either way (recorder.js has
+      // already torn it down internally) — clear the module-level reference
+      // so the reentrancy guard above doesn't block the *next* Record tap.
+      recorder = null;
+      // Idempotency guard: this can race a manual Stop that resolved first
+      // (both calls share recorder.js's single in-flight stop() promise).
+      // Only the path that finds phase still 'recording' proceeds — dispatch
+      // is synchronous, so whichever settles first wins and the other no-ops.
+      if (state.phase !== 'recording') return;
       dispatch({ type: 'RECORD_STOP', blob });
       runTranscription();
     },
@@ -81,6 +102,8 @@ $('btn-record').onclick = async () => {
     await recorder.start();
     dispatch({ type: 'RECORD_START' });
   } catch (err) {
+    recorder = null;
+    render(); // restore the idle screen's button state (still gated on hasApiKey())
     alert(
       err.name === 'NotAllowedError'
         ? 'Microphone access denied. Enable it in iOS Settings → Apps → Safari → Microphone, then try again.'
@@ -90,7 +113,18 @@ $('btn-record').onclick = async () => {
 };
 
 $('btn-stop').onclick = async () => {
+  // A prior tap (or auto-stop/visibilitychange) may have already nulled this
+  // out — bail rather than dereferencing a stopped/gone recorder.
+  if (!recorder) return;
   const blob = await recorder.stop();
+  // This recorder instance's life is over either way — clear the reference
+  // so the reentrancy guard on btn-record doesn't block the *next* tap.
+  recorder = null;
+  // Idempotency guard: a double-tap of Stop, or a manual Stop racing the
+  // 5:00 auto-stop or a visibilitychange interruption, all resolve the same
+  // shared recorder.js stop() promise. Only proceed if nothing else has
+  // already moved the phase off 'recording'.
+  if (state.phase !== 'recording') return;
   if (blob) {
     dispatch({ type: 'RECORD_STOP', blob });
     runTranscription();
@@ -104,6 +138,12 @@ $('btn-stop').onclick = async () => {
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState === 'visible' && state.phase === 'recording' && recorder) {
     const blob = await recorder.stop();
+    // This recorder instance's life is over either way — clear the reference
+    // so the reentrancy guard on btn-record doesn't block the *next* tap.
+    recorder = null;
+    // Idempotency guard: a manual Stop (or auto-stop) may have already won
+    // the race on the shared stop() promise and moved the phase along.
+    if (state.phase !== 'recording') return;
     if (blob && blob.size > 0) dispatch({ type: 'RECORD_INTERRUPTED', blob });
     else dispatch({ type: 'RESET' });
   }
