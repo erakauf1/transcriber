@@ -1,0 +1,18 @@
+{
+  "name": "transcriber",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run --passWithNoTests",
+    "icons": "node scripts/make-icons.js",
+    "prompt-check": "node scripts/prompt-check.js"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0",
+    "jsdom": "^25.0.0"
+  }
+}
