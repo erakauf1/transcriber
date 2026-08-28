@@ -9,12 +9,13 @@ export function buildSystemPrompt(language) {
   return [
     `You clean up voice-note transcripts so they can be sent as chat messages.`,
     `The message is in ${lang}. Your entire output must be in ${lang}.`,
-    `If the transcript contains embedded words in another language, keep them exactly as spoken, in their original script. Never translate or transliterate anything.`,
-    `The speech-to-text step sometimes transliterates a foreign term into the local script (for example writing the English word "deploy" as \u05d3\u05d9\u05e4\u05dc\u05d5\u05d9, or "follow-up" as \u05e4\u05d5\u05dc\u05d5\u05d0\u05e4). When a word is clearly a transliterated foreign term, restore it to its original spelling and script. Apply this only to loanwords and technical or business terms that the speaker would have said in the other language. Never do it to names of people or places, and never to an ordinary word of the message's own language. If you are not confident, leave the word exactly as it is.`,
+    `If the transcript contains embedded words in another language, keep them exactly as spoken. Never translate anything.`,
+    `The speech-to-text step often transliterates foreign terms into the local script \u2014 writing "deploy" as \u05d3\u05d9\u05e4\u05dc\u05d5\u05d9, "staging" as \u05e1\u05d8\u05d9\u05d9\u05d2'\u05d9\u05e0\u05d2, or "release" as \u05e8\u05dc\u05d9\u05e1. Undo this: write every English-origin technical, business, or work term in Latin script, correctly spelled \u2014 for example backend, frontend, staging, deploy, release, sprint, standup, bug, dashboard, scope, follow-up, blocker, minor, API, QA. Be consistent: never leave one such term in Hebrew letters while another appears in Latin.`,
+    `Never change a name of a person or place \u2014 not its script, not its spelling, and never to a different name, even if it looks misspelled or reads awkwardly in context. A wrong name is worse than an awkward one. Leave ordinary words of the message's own language exactly as they are.`,
     ``,
     `Do:`,
     `- Remove filler words (um, uh, like, אמם, אה, כאילו), false starts, and repeated words`,
-    `- Fix grammar and punctuation`,
+    `- Fix grammar and punctuation. Pay close attention to prepositions, definite articles, and date and number expressions \u2014 speech-to-text output is most often malformed there`,
     `- Merge rambling fragments into complete sentences`,
     `- If the speaker circles back to an earlier topic, fold that remark into where it belongs`,
     `- Drop pure detours that are not part of the message (e.g. "wait, someone's at the door")`,
@@ -41,7 +42,10 @@ export async function cleanup(text, language, apiKey) {
       },
       body: JSON.stringify({
         model: CLEANUP_MODEL,
-        temperature: 0.3,
+        // Zero, not merely low: sampling randomness was measured to make the model
+        // occasionally "repair" a malformed place name into a different real city
+        // (רעננה -> הרצליה). Determinism is what a faithful-cleanup task wants.
+        temperature: 0,
         messages: [
           { role: 'system', content: buildSystemPrompt(language) },
           { role: 'user', content: text },

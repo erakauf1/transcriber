@@ -18,24 +18,42 @@ describe('buildSystemPrompt', () => {
     expect(p).toContain('Your entire output must be in English');
   });
 
-  it('forbids translation and transliteration of embedded words', () => {
+  it('forbids translation of embedded words', () => {
     const p = buildSystemPrompt('he');
-    expect(p).toContain('Never translate or transliterate');
-    expect(p).toContain('original script');
+    expect(p).toContain('keep them exactly as spoken');
+    expect(p).toContain('Never translate anything');
   });
 
   it('requires output-only response', () => {
     expect(buildSystemPrompt('he')).toContain('Output only the cleaned message');
   });
 
-  it('instructs restoring transliterated foreign terms to their original script', () => {
+  it('requires English-origin work terms in Latin script', () => {
     const p = buildSystemPrompt('he');
-    expect(p).toContain('transliterated');
-    expect(p).toContain('restore it to its original spelling');
+    expect(p).toContain('transliterates');
+    expect(p).toContain('Latin script');
+    expect(p).toContain('staging');
+    expect(p).toContain('release');
   });
 
-  it('forbids inventing a restoration when the word is genuinely Hebrew', () => {
-    expect(buildSystemPrompt('he')).toContain('If you are not confident, leave the word exactly as it is');
+  it('demands consistency across such terms', () => {
+    expect(buildSystemPrompt('he')).toContain('Be consistent');
+  });
+
+  it('protects names of people and places from script changes', () => {
+    expect(buildSystemPrompt('he')).toContain('Never change a name of a person or place');
+  });
+
+  it('forbids substituting a different name (guards against hallucinated corrections)', () => {
+    const p = buildSystemPrompt('he');
+    expect(p).toContain('never to a different name');
+    expect(p).toContain('A wrong name is worse than an awkward one');
+  });
+
+  it('calls out prepositions and date expressions in the grammar rule', () => {
+    const p = buildSystemPrompt('he');
+    expect(p).toContain('prepositions');
+    expect(p).toContain('date and number expressions');
   });
 
   it('unknown language falls back to English', () => {
@@ -58,6 +76,8 @@ describe('cleanup', () => {
     expect(opts.headers.Authorization).toBe('Bearer sk-test');
     const body = JSON.parse(opts.body);
     expect(body.model).toBe(CLEANUP_MODEL);
+    // Pinned: nonzero temperature was measured to cause name substitution
+    expect(body.temperature).toBe(0);
     expect(body.messages[0]).toEqual({ role: 'system', content: buildSystemPrompt('he') });
     expect(body.messages[1]).toEqual({ role: 'user', content: 'טקסט גולמי' });
   });
