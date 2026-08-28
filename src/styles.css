@@ -72,8 +72,8 @@ body {
 
 /* result: a scrolling page */
 .screen-page {
-  gap: 12px;
-  padding: var(--safe-top) 16px calc(var(--safe-bottom) + 8px);
+  gap: 16px;
+  padding: var(--safe-top) 16px calc(var(--safe-bottom) + 16px);
   overflow-y: auto;
 }
 
@@ -276,7 +276,13 @@ body {
 .btn-primary { border: 2px solid var(--color-accent); color: var(--color-accent); }
 .btn-primary:hover { background: var(--color-accent-900); }
 
-.btn-lg { padding: 13px; font-size: 15px; gap: 8px; }
+#btn-whatsapp {
+  border-color: #25d366;
+  color: #25d366;
+}
+#btn-whatsapp:hover { background: rgba(37, 211, 102, .1); }
+
+.btn-lg { padding: 20px; font-size: 20px; gap: 10px; }
 
 .btn-quiet:hover { border-color: var(--color-neutral-600); background: var(--color-neutral-900); }
 
@@ -288,6 +294,16 @@ body {
   border-radius: var(--radius-sm);
 }
 .btn-ghost:hover { background: var(--color-accent-900); }
+
+/* new recording — big enough to tap without looking */
+#btn-new {
+  font-size: 22px;
+  padding: 22px 32px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-neutral-700);
+  color: var(--color-text);
+  width: 100%;
+}
 
 .btn-block { width: 100%; }
 
@@ -330,13 +346,13 @@ body {
 
 #result-text {
   width: 100%;
-  min-height: 120px;
-  padding: 12px;
+  min-height: 160px;
+  padding: 16px;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-neutral-800);
   background: var(--color-neutral-900);
   color: var(--color-text);
-  font: 400 13px/1.6 var(--font-body);
+  font: 400 22px/1.5 var(--font-body);
   caret-color: var(--color-accent);
   resize: vertical;
 }
@@ -356,23 +372,30 @@ body {
 
 #raw-details {
   color: var(--color-neutral-500);
-  font: 400 12px/1.4 var(--font-body);
+  font: 400 14px/1.4 var(--font-body);
   margin-top: 4px;
 }
 #raw-details[hidden] { display: none; }
-#raw-details summary { cursor: pointer; transition: color .15s ease; }
-#raw-details summary:hover { color: var(--color-neutral-400); }
+#raw-details summary { display: none; }
 #raw-details p {
-  margin: 8px 0 0;
+  margin: 0;
   white-space: pre-wrap;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--color-neutral-600);
-  padding: 8px;
+  padding: 12px;
   background: var(--color-neutral-900);
   border-radius: var(--radius-sm);
 }
 
-.result-foot { text-align: center; margin-top: auto; padding-top: 8px; }
+#raw-label {
+  font: 500 12px/1 var(--font-body);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--color-neutral-600);
+  margin-bottom: 6px;
+}
+
+.result-foot { text-align: center; margin-top: auto; padding-top: 16px; }
 
 /* ── settings sheet ─────────────────────────────────────────────────────── */
 
