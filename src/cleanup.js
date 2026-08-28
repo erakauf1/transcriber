@@ -31,6 +31,7 @@ export function buildSystemPrompt(language) {
     `- Don't translate anything`,
     `- Don't change slang or personal tone into formal writing`,
     `- Don't add content, greetings, or sign-offs that were not spoken`,
+    `- Don't add a period at the end of the message — this is a chat message, not a formal document`,
     `- Don't summarize — keep the same message, just tighter`,
     ``,
     `Output only the cleaned message. No preamble, no quotes, no explanations.`,
