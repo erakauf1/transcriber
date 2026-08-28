@@ -2,6 +2,7 @@ import { createRecorder } from './recorder.js';
 import { transcribe } from './transcribe.js';
 import { cleanup } from './cleanup.js';
 import { detectLanguage } from './language.js';
+import { restoreLoanwords } from './loanwords.js';
 import { copyText } from './clipboard.js';
 import { getApiKey, setApiKey, hasApiKey } from './settings.js';
 import { initialState, reduce } from './state.js';
@@ -70,7 +71,8 @@ async function runTranscription() {
 
 async function runCleanup() {
   try {
-    const text = await cleanup(state.rawTranscript, state.language, getApiKey());
+    // Undo transliterated work terms in code before the LLM sees the text — see loanwords.js.
+    const text = await cleanup(restoreLoanwords(state.rawTranscript), state.language, getApiKey());
     dispatch({ type: 'CLEANUP_OK', text });
   } catch (err) {
     dispatch({ type: 'CLEANUP_FAIL', message: err.message });

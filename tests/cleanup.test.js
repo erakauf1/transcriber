@@ -28,16 +28,17 @@ describe('buildSystemPrompt', () => {
     expect(buildSystemPrompt('he')).toContain('Output only the cleaned message');
   });
 
-  it('requires English-origin work terms in Latin script', () => {
+  it('leaves words already in Latin letters untouched', () => {
     const p = buildSystemPrompt('he');
-    expect(p).toContain('transliterates');
-    expect(p).toContain('Latin script');
-    expect(p).toContain('staging');
-    expect(p).toContain('release');
+    expect(p).toContain('already be written in Latin letters');
+    expect(p).toContain('Leave them exactly as they are');
   });
 
-  it('demands consistency across such terms', () => {
-    expect(buildSystemPrompt('he')).toContain('Be consistent');
+  it('gives the model no mandate to rewrite words that look transliterated', () => {
+    // The root cause of substituted place names: see src/loanwords.js.
+    const p = buildSystemPrompt('he');
+    expect(p).not.toContain('Undo this');
+    expect(p).not.toContain('transliterates');
   });
 
   it('protects names of people and places from script changes', () => {

@@ -10,7 +10,11 @@ export function buildSystemPrompt(language) {
     `You clean up voice-note transcripts so they can be sent as chat messages.`,
     `The message is in ${lang}. Your entire output must be in ${lang}.`,
     `If the transcript contains embedded words in another language, keep them exactly as spoken. Never translate anything.`,
-    `The speech-to-text step often transliterates foreign terms into the local script \u2014 writing "deploy" as \u05d3\u05d9\u05e4\u05dc\u05d5\u05d9, "staging" as \u05e1\u05d8\u05d9\u05d9\u05d2'\u05d9\u05e0\u05d2, or "release" as \u05e8\u05dc\u05d9\u05e1. Undo this: write every English-origin technical, business, or work term in Latin script, correctly spelled \u2014 for example backend, frontend, staging, deploy, release, sprint, standup, bug, dashboard, scope, follow-up, blocker, minor, API, QA. Be consistent: never leave one such term in Hebrew letters while another appears in Latin.`,
+    `Some words may already be written in Latin letters inside the message. Leave them exactly as they are \u2014 do not convert them to the local script, and do not respell them.`,
+    // Deliberately absent: any instruction to rewrite words that "look transliterated".
+    // That mandate was measured to make the model occasionally rewrite a malformed
+    // place name into a different real city. Transliteration is now undone
+    // deterministically in src/loanwords.js, before this prompt ever sees the text.
     `Never change a name of a person or place \u2014 not its script, not its spelling, and never to a different name, even if it looks misspelled or reads awkwardly in context. A wrong name is worse than an awkward one. Leave ordinary words of the message's own language exactly as they are.`,
     ``,
     `Do:`,
