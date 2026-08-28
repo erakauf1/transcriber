@@ -1,3 +1,4 @@
+# continuous deployment from github.com/erakauf1/transcriber (main branch)
 [build]
   command = "npm run build"
   publish = "dist"
