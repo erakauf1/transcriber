@@ -21,6 +21,8 @@
   <h2>ASR comparison</h2>
   <p style="color:#9ca3af">Records once, transcribes with each model. Listen to the playback first — if the audio itself sounds bad, the problem is capture, not the model.</p>
 
+  <label for="oai-key">OpenAI API key (auto-filled if saved in this browser)</label>
+  <input id="oai-key" type="password" placeholder="sk-..." />
   <label for="el-key">ElevenLabs API key (optional — leave empty to skip Scribe)</label>
   <input id="el-key" type="password" placeholder="xi-..." />
 
@@ -30,10 +32,11 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
-    const openaiKey = localStorage.getItem('openai_api_key'); // same key the app saved
+    // NOTE: iOS home-screen apps and Safari have SEPARATE storage — the key saved
+    // inside the installed app is not visible here. Hence the input field.
+    $('oai-key').value = localStorage.getItem('openai_api_key') || '';
     const elKeyStored = localStorage.getItem('elevenlabs_api_key');
     if (elKeyStored) $('el-key').value = elKeyStored;
-    if (!openaiKey) alert('No OpenAI key found in this browser. Open the app first and save your key in Settings.');
 
     let rec = null, chunks = [], stream = null;
 
@@ -52,7 +55,7 @@
       form.append('model', model);
       const t0 = Date.now();
       const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST', headers: { Authorization: 'Bearer ' + openaiKey }, body: form,
+        method: 'POST', headers: { Authorization: 'Bearer ' + $('oai-key').value.trim() }, body: form,
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
@@ -84,7 +87,16 @@
 
     $('btn').onclick = async () => {
       if (rec) { rec.stop(); return; }
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!$('oai-key').value.trim()) { alert('Paste your OpenAI API key first.'); return; }
+      localStorage.setItem('openai_api_key', $('oai-key').value.trim());
+      try {
+        if (!navigator.mediaDevices || !window.MediaRecorder) throw new Error('Recording not supported in this browser');
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        alert('Microphone failed: ' + (err.name || '') + ' ' + err.message +
+          '\n\nIf you tapped "Don\'t Allow" before: iOS Settings \u2192 Apps \u2192 Safari \u2192 Microphone \u2192 Allow, or tap the \u1d00A button in the address bar \u2192 Website Settings \u2192 Microphone \u2192 Allow.');
+        return;
+      }
       chunks = [];
       const mime = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find((t) => MediaRecorder.isTypeSupported(t)) || '';
       rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
