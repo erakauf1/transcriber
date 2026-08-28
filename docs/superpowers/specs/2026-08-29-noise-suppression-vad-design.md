@@ -56,7 +56,16 @@ createPipeline(stream, { noiseSuppression: boolean })
 - When `noiseSuppression: false`, connects source → destination directly
 - `destroy()` disconnects all nodes and closes the AudioContext
 
-**Fallback:** If AudioWorklet or WASM fails to load, logs a warning and falls back to passthrough (raw mic → MediaStreamDestination). Recording never fails because of the suppressor.
+**Node graph detail:** The suppressor output fans to two destinations:
+```
+source → [RnnoiseWorkletNode] → MediaStreamDestination (→ MediaRecorder)
+                               ↘ AnalyserNode (→ level meter + VAD)
+```
+Both the destination and analyser connect to the suppressor's output (or directly to source when suppression is off).
+
+**Capability check:** Exports `checkNoiseSuppressionSupport() → Promise<boolean>` — probes for AudioWorklet and WASM support without loading the full model. Called once on app boot to determine whether the Settings toggle should show "Unavailable".
+
+**Fallback:** If AudioWorklet or WASM fails to load at recording time, logs a warning and falls back to passthrough (raw mic → MediaStreamDestination). Recording never fails because of the suppressor.
 
 ### `src/vad.js`
 
@@ -85,12 +94,13 @@ createVAD(analyser, { onSpeechStart, onSpeechEnd, threshold?, silenceMs? })
 - `createRecorder()` options gain `noiseSuppression: boolean` (default `true`), stored on the instance
 - `start()` calls `createPipeline(stream, { noiseSuppression })` after `getUserMedia` and feeds `pipeline.cleanStream` to MediaRecorder
 - Level meter uses the pipeline's `analyser` instead of creating its own
+- Exposes `getAnalyser()` so app.js can pass it to the VAD after recording starts
 - `teardown()` calls `pipeline.destroy()` alongside existing cleanup
 
 ### `src/app.js`
 
 - Passes `noiseSuppression` setting from `getNoiseSuppressionEnabled()` to `createRecorder()`
-- Creates VAD from the recorder's analyser after recording starts
+- Creates VAD from `recorder.getAnalyser()` after recording starts
 - VAD `onSpeechStart` / `onSpeechEnd` callbacks drive the wave-bar amplitude:
   - Speech detected: `--amp` set from live level meter (current behavior)
   - Silence detected: `--amp` pulled toward `0.15` (minimal bar height, visual "listening" state)
@@ -108,7 +118,7 @@ createVAD(analyser, { onSpeechStart, onSpeechEnd, threshold?, silenceMs? })
   Noise suppression    [ON/OFF toggle]
   Reduces background noise for cleaner transcriptions
   ```
-- Toggle shows "Unavailable" if AudioWorklet/WASM fails to load
+- Toggle shows "Unavailable" if `checkNoiseSuppressionSupport()` returns false on app boot
 
 ## Library
 
