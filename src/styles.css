@@ -41,7 +41,7 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-body);
-  font-size: 15px;
+  font-size: 17px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
@@ -84,8 +84,8 @@ body {
   margin: 0;
 }
 
-.hint { font: 400 12px/1.4 var(--font-body); color: var(--color-neutral-500); margin: 8px 0 0; }
-.hint-tight { margin-top: 12px; font-size: 11px; }
+.hint { font: 400 15px/1.4 var(--font-body); color: var(--color-neutral-500); margin: 12px 0 0; }
+.hint-tight { margin-top: 14px; font-size: 13px; }
 .hint-center { text-align: center; }
 .error { color: var(--color-danger); font: 400 13px/1.5 var(--font-body); margin: 0; }
 
@@ -117,15 +117,15 @@ body {
 /* ── idle ───────────────────────────────────────────────────────────────── */
 
 .wordmark {
-  font: 500 17px/1 var(--font-heading);
+  font: 500 22px/1 var(--font-heading);
   letter-spacing: .03em;
   color: var(--color-neutral-400);
-  margin-bottom: 72px;
+  margin-bottom: 56px;
 }
 
 .record-btn {
-  width: 88px;
-  height: 88px;
+  width: 140px;
+  height: 140px;
   padding: 0;
   border-radius: 50%;
   border: 2px solid var(--color-accent);
@@ -145,7 +145,7 @@ body {
 .record-btn:disabled { opacity: .35; cursor: not-allowed; }
 .record-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 4px; }
 
-.record-label { font: 500 15px/1 var(--font-body); color: var(--color-text); margin: 20px 0 0; }
+.record-label { font: 500 20px/1 var(--font-body); color: var(--color-text); margin: 28px 0 0; }
 
 .idle-wave {
   display: flex;
@@ -166,7 +166,7 @@ body {
 /* ── recording ──────────────────────────────────────────────────────────── */
 
 #timer {
-  font: 500 44px/1 var(--font-heading);
+  font: 500 64px/1 var(--font-heading);
   color: var(--color-text);
   font-variant-numeric: tabular-nums;
   margin-bottom: 8px;
@@ -217,8 +217,8 @@ body {
 }
 
 .stop-btn {
-  width: 56px;
-  height: 56px;
+  width: 88px;
+  height: 88px;
   padding: 0;
   border-radius: 50%;
   border: 2px solid var(--color-danger);
@@ -232,7 +232,7 @@ body {
 .stop-btn:hover { background: rgba(248, 113, 113, .08); }
 .stop-btn:active { transform: scale(.9); }
 .stop-btn:focus-visible { outline: 2px solid var(--color-danger); outline-offset: 4px; }
-.stop-btn span { width: 18px; height: 18px; border-radius: 3px; background: var(--color-danger); }
+.stop-btn span { width: 28px; height: 28px; border-radius: 5px; background: var(--color-danger); }
 
 /* ── processing ─────────────────────────────────────────────────────────── */
 
@@ -260,12 +260,12 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 11px 14px;
+  padding: 16px 20px;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-neutral-700);
   background: transparent;
   color: var(--color-text);
-  font: 500 14px/1 var(--font-body);
+  font: 500 17px/1 var(--font-body);
   cursor: pointer;
   transition: transform .15s ease, background .15s ease, border-color .15s ease;
 }
