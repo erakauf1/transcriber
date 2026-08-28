@@ -5,64 +5,124 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="theme-color" content="#4f46e5" />
+  <meta name="theme-color" content="#161826" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/icons/icon-180.png" />
   <title>Voice Note</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" />
   <link rel="stylesheet" href="/src/styles.css" />
 </head>
 <body>
   <main id="app">
-    <section id="screen-idle" hidden>
-      <button id="btn-record" class="big-btn">🎤 Record</button>
-      <p id="idle-hint"></p>
+    <!-- Settings gear — sits above every screen, as in the design -->
+    <button id="btn-settings" class="gear" type="button" aria-label="Settings">
+      <svg width="18" height="18" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M128,80a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Zm88-29.84q.06-2.16,0-4.32l14.92-18.64a8,8,0,0,0,1.48-7.06,107.21,107.21,0,0,0-10.88-26.25,8,8,0,0,0-6-3.93l-23.72-2.64q-1.48-1.56-3-3L186,40.54a8,8,0,0,0-3.94-6,107.71,107.71,0,0,0-26.25-10.87,8,8,0,0,0-7.06,1.49L130.16,40Q128,40,125.84,40L107.2,25.11a8,8,0,0,0-7.06-1.48A107.6,107.6,0,0,0,73.89,34.51a8,8,0,0,0-3.93,6L67.32,64.27q-1.56,1.49-3,3L40.54,70a8,8,0,0,0-6,3.94,107.71,107.71,0,0,0-10.87,26.25,8,8,0,0,0,1.49,7.06L40,125.84Q40,128,40,130.16L25.11,148.8a8,8,0,0,0-1.48,7.06,107.21,107.21,0,0,0,10.88,26.25,8,8,0,0,0,6,3.93l23.72,2.64q1.49,1.56,3,3L70,215.46a8,8,0,0,0,3.94,6,107.71,107.71,0,0,0,26.25,10.87,8,8,0,0,0,7.06-1.49L125.84,216q2.16.06,4.32,0l18.64,14.92a8,8,0,0,0,7.06,1.48,107.21,107.21,0,0,0,26.25-10.88,8,8,0,0,0,3.93-6l2.64-23.72q1.56-1.48,3-3L215.46,186a8,8,0,0,0,6-3.94,107.71,107.71,0,0,0,10.87-26.25,8,8,0,0,0-1.49-7.06ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg>
+    </button>
+
+    <!-- IDLE -->
+    <section id="screen-idle" class="screen screen-centered" hidden>
+      <div class="wordmark">Voice Note</div>
+      <button id="btn-record" class="record-btn" type="button" aria-label="Record">
+        <svg width="28" height="28" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M128,176a48,48,0,0,0,48-48V64a48,48,0,0,0-96,0v64A48,48,0,0,0,128,176ZM96,64a32,32,0,0,1,64,0v64a32,32,0,0,1-64,0Zm40,143.6V232a8,8,0,0,1-16,0V207.6A80.11,80.11,0,0,1,48,128a8,8,0,0,1,16,0,64,64,0,0,0,128,0,8,8,0,0,1,16,0A80.11,80.11,0,0,1,136,207.6Z"/></svg>
+      </button>
+      <p class="record-label">Tap to record</p>
+      <p id="idle-hint" class="hint"></p>
+      <div class="idle-wave" aria-hidden="true">
+        <i style="height:8px;animation-delay:0s"></i>
+        <i style="height:14px;animation-delay:.15s"></i>
+        <i style="height:20px;animation-delay:.3s"></i>
+        <i style="height:12px;animation-delay:.45s"></i>
+        <i style="height:16px;animation-delay:.6s"></i>
+      </div>
     </section>
 
-    <section id="screen-recording" hidden>
-      <div id="level-meter"><div id="level-bar"></div></div>
+    <!-- RECORDING -->
+    <section id="screen-recording" class="screen screen-centered" hidden>
       <div id="timer">0:00</div>
-      <button id="btn-stop" class="big-btn stop">■ Stop</button>
+      <div class="rec-badge"><span class="rec-dot"></span>Recording</div>
+      <!-- 18 bars, built in app.js; the wrapper's scaleY tracks the live mic level -->
+      <div class="wave" aria-hidden="true"><div id="wave-bars" class="wave-bars"></div></div>
+      <button id="btn-stop" class="stop-btn" type="button" aria-label="Stop recording"><span></span></button>
+      <p class="hint hint-tight">Tap to stop</p>
     </section>
 
-    <section id="screen-busy" hidden>
-      <div id="busy-spinner" class="spinner"></div>
-      <p id="busy-label"></p>
-      <div id="busy-error" hidden>
+    <!-- PROCESSING -->
+    <section id="screen-busy" class="screen screen-centered" hidden>
+      <div id="busy-spinner" class="busy-head">
+        <h1 class="screen-title">Processing</h1>
+        <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+      </div>
+      <p id="busy-label" class="hint hint-center"></p>
+      <div id="busy-error" class="stack" hidden>
         <p id="busy-error-msg" class="error"></p>
-        <button id="btn-retry-transcribe">Retry transcription</button>
-        <button id="btn-cancel" class="secondary">Cancel</button>
+        <button id="btn-retry-transcribe" class="btn btn-primary" type="button">Retry transcription</button>
+        <button id="btn-cancel" class="btn btn-quiet" type="button">Cancel</button>
       </div>
     </section>
 
-    <section id="screen-interrupted" hidden>
-      <p>Recording was interrupted (the app went to the background).</p>
-      <button id="btn-use-partial">Transcribe what was captured</button>
-      <button id="btn-discard" class="secondary">Discard</button>
+    <!-- INTERRUPTED -->
+    <section id="screen-interrupted" class="screen screen-centered" hidden>
+      <h1 class="screen-title">Recording interrupted</h1>
+      <p class="hint hint-center">The app went to the background mid&#8209;recording.<br />You can still use what was captured.</p>
+      <div class="stack stack-wide">
+        <button id="btn-use-partial" class="btn btn-primary" type="button">Transcribe what was captured</button>
+        <button id="btn-discard" class="btn btn-quiet" type="button">Discard</button>
+      </div>
     </section>
 
-    <section id="screen-result" hidden>
-      <div id="cleanup-error" hidden>
+    <!-- RESULT -->
+    <section id="screen-result" class="screen screen-page" hidden>
+      <div class="result-head">
+        <h1 class="screen-title">Transcript</h1>
+        <span id="cleaned-badge" class="badge">✓ cleaned</span>
+      </div>
+      <div id="cleanup-error" class="notice" hidden>
         <p class="error">Cleanup failed — showing the raw transcript.</p>
-        <button id="btn-retry-cleanup">Retry cleanup</button>
+        <button id="btn-retry-cleanup" class="btn btn-primary" type="button">Retry cleanup</button>
       </div>
-      <textarea id="result-text" dir="auto" rows="10"></textarea>
-      <button id="btn-copy" class="big-btn">Copy</button>
-      <button id="btn-whatsapp" class="big-btn whatsapp">Send to WhatsApp</button>
-      <p id="copy-feedback" hidden></p>
+      <textarea id="result-text" dir="auto" rows="6"></textarea>
+      <button id="btn-whatsapp" class="btn btn-primary btn-lg" type="button">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        Send to WhatsApp
+      </button>
+      <button id="btn-copy" class="btn btn-quiet" type="button">
+        <span id="copy-label" class="copy-label">
+          <svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M216,32H88a8,8,0,0,0-8,8V80H40a8,8,0,0,0-8,8V216a8,8,0,0,0,8,8H168a8,8,0,0,0,8-8V176h40a8,8,0,0,0,8-8V40A8,8,0,0,0,216,32ZM160,208H48V96H160Zm48-48H176V88a8,8,0,0,0-8-8H96V48H208Z"/></svg>
+          Copy text
+        </span>
+        <span id="copy-feedback" class="copy-done" hidden></span>
+      </button>
+      <p id="copy-error" class="error" hidden>Copy failed — long-press the text and copy manually.</p>
       <details id="raw-details">
-        <summary>Raw transcript</summary>
+        <summary>Show raw transcript</summary>
         <p id="raw-text" dir="auto"></p>
       </details>
-      <button id="btn-new" class="secondary">New recording</button>
+      <div class="result-foot">
+        <button id="btn-new" class="btn btn-ghost" type="button">New recording</button>
+      </div>
     </section>
 
-    <details id="settings">
-      <summary>⚙️ Settings</summary>
-      <label for="api-key">OpenAI API key</label>
-      <input id="api-key" type="password" autocomplete="off" placeholder="sk-..." />
-      <button id="btn-save-key">Save</button>
-      <p id="key-status"></p>
-    </details>
+    <!-- SETTINGS -->
+    <section id="settings" class="sheet" hidden aria-label="Settings">
+      <div class="sheet-head">
+        <h1 class="screen-title">Settings</h1>
+        <button id="btn-settings-done" class="btn btn-ghost" type="button">Done</button>
+      </div>
+      <div class="sheet-body">
+        <div class="field">
+          <label for="api-key">OpenAI API key</label>
+          <input id="api-key" type="password" autocomplete="off" placeholder="sk-••••••••••••••" />
+          <button id="btn-save-key" class="btn btn-primary btn-block" type="button">Save key</button>
+          <p id="key-status" class="hint hint-tight"></p>
+        </div>
+        <p class="sheet-note">
+          Voice Note records audio, transcribes it with gpt&#8209;4o&#8209;transcribe, and cleans up
+          filler words with GPT&#8209;4o. Everything runs on your own API key — nothing is stored.
+        </p>
+      </div>
+    </section>
   </main>
   <script type="module" src="/src/app.js"></script>
 </body>

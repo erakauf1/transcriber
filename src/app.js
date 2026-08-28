@@ -9,6 +9,12 @@ import { initialState, reduce } from './state.js';
 
 let state = initialState;
 let recorder = null;
+// Settings is a UI overlay, not a phase — it can sit over any screen, so it
+// stays out of the state machine.
+let settingsOpen = false;
+// One-shot latch so the auto-copy confirmation fires when the result arrives,
+// not on every later re-render of the same result.
+let autoCopyAnnounced = false;
 
 const $ = (id) => document.getElementById(id);
 
@@ -22,13 +28,30 @@ function fmt(ms) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+// The recording waveform: 18 bars whose resting heights are re-rolled per
+// recording, each running the same keyframe on a staggered delay.
+const WAVE_BARS = 18;
+function buildWave() {
+  const host = $('wave-bars');
+  host.replaceChildren(
+    ...Array.from({ length: WAVE_BARS }, (_, i) => {
+      const bar = document.createElement('i');
+      bar.style.height = `${20 + Math.random() * 80}px`;
+      bar.style.animationDelay = `${(i * 0.065).toFixed(3)}s`;
+      return bar;
+    })
+  );
+  host.style.setProperty('--amp', '1');
+}
+
 function render() {
   $('screen-idle').hidden = state.phase !== 'idle';
   $('screen-recording').hidden = state.phase !== 'recording';
   $('screen-busy').hidden = state.phase !== 'transcribing' && state.phase !== 'cleaning';
   $('screen-interrupted').hidden = state.phase !== 'interrupted';
   $('screen-result').hidden = state.phase !== 'result';
-  $('settings').hidden = state.phase !== 'idle' && !state.error;
+  $('settings').hidden = !settingsOpen;
+  $('btn-settings').hidden = settingsOpen; // the sheet's own Done button replaces it
 
   $('btn-record').disabled = !hasApiKey();
   $('idle-hint').textContent = hasApiKey()
@@ -43,7 +66,8 @@ function render() {
   }
 
   if (state.phase === 'transcribing' || state.phase === 'cleaning') {
-    $('busy-label').textContent = state.phase === 'transcribing' ? 'Transcribing…' : 'Cleaning up…';
+    // One "Processing" screen covers both legs of the pipeline, as designed.
+    $('busy-label').textContent = 'Transcribing & cleaning up your voice note…';
     $('busy-error').hidden = !state.error;
     $('busy-error-msg').textContent = state.error || '';
     $('busy-spinner').hidden = !!state.error;
@@ -53,15 +77,32 @@ function render() {
   if (state.phase === 'result') {
     const cleanupFailed = !state.cleanedText;
     $('cleanup-error').hidden = !cleanupFailed;
+    $('cleaned-badge').hidden = cleanupFailed;
     $('result-text').value = state.cleanedText ?? state.rawTranscript ?? '';
     $('raw-text').textContent = state.rawTranscript ?? '';
     $('raw-details').hidden = cleanupFailed; // raw already shown as the main text
-    if (state.autoCopied) {
-      const fb = $('copy-feedback');
-      fb.textContent = 'Copied to clipboard ✓ — paste it into your chat';
-      fb.hidden = false;
+    if (state.autoCopied && !autoCopyAnnounced) {
+      autoCopyAnnounced = true;
+      showCopied('Copied ✓ — paste it into your chat');
     }
+  } else {
+    autoCopyAnnounced = false;
   }
+}
+
+// Swaps the Copy button's label for its confirmation, then swaps it back.
+let copyFeedbackTimer = null;
+function showCopied(message) {
+  const fb = $('copy-feedback');
+  fb.textContent = message;
+  fb.hidden = false;
+  $('copy-label').hidden = true;
+  $('copy-error').hidden = true;
+  if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer);
+  copyFeedbackTimer = setTimeout(() => {
+    fb.hidden = true;
+    $('copy-label').hidden = false;
+  }, 2500);
 }
 
 async function runTranscription() {
@@ -100,9 +141,15 @@ $('btn-record').onclick = async () => {
   // and bails before touching createRecorder() again.
   if (recorder) return;
   $('btn-record').disabled = true;
+  $('timer').textContent = '0:00';
+  buildWave();
   recorder = createRecorder({
     onTick: (ms) => { $('timer').textContent = fmt(ms); },
-    onLevel: (v) => { $('level-bar').style.width = `${Math.min(100, v * 140)}%`; },
+    // The bars keep their designed animation; the live level scales the whole
+    // set, floored at .35 so a quiet moment still reads as "listening".
+    onLevel: (v) => {
+      $('wave-bars').style.setProperty('--amp', String(Math.min(1, Math.max(0.35, v * 1.4))));
+    },
     onAutoStop: (blob) => {
       // This recorder instance's life is over either way (recorder.js has
       // already torn it down internally) — clear the module-level reference
@@ -185,14 +232,10 @@ $('btn-retry-cleanup').onclick = () => {
   runCleanup();
 };
 
-let copyFeedbackTimer = null;
 $('btn-copy').onclick = async () => {
   const ok = await copyText($('result-text').value);
-  const fb = $('copy-feedback');
-  fb.textContent = ok ? 'Copied ✓ — paste it into your chat' : 'Copy failed — long-press the text and copy manually';
-  fb.hidden = false;
-  if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer);
-  copyFeedbackTimer = setTimeout(() => { fb.hidden = true; }, 2500);
+  if (ok) showCopied('Copied ✓');
+  else $('copy-error').hidden = false;
 };
 
 $('btn-whatsapp').onclick = () => {
@@ -202,11 +245,19 @@ $('btn-whatsapp').onclick = () => {
 
 $('btn-new').onclick = () => dispatch({ type: 'RESET' });
 
+const setSettingsOpen = (open) => { settingsOpen = open; render(); };
+$('btn-settings').onclick = () => setSettingsOpen(true);
+$('btn-settings-done').onclick = () => setSettingsOpen(false);
+
 $('btn-save-key').onclick = () => {
   setApiKey($('api-key').value);
-  $('key-status').textContent = hasApiKey() ? 'Key saved ✓' : 'Key cleared';
+  const saved = hasApiKey();
   $('api-key').value = '';
+  // Close on a successful save — the sheet's only job is done. Clearing the
+  // key keeps it open so the status line is actually readable.
+  settingsOpen = !saved;
   render();
+  $('key-status').textContent = saved ? 'Key saved ✓' : 'Key cleared';
 };
 
 render();
