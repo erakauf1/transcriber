@@ -195,6 +195,11 @@ $('btn-copy').onclick = async () => {
   copyFeedbackTimer = setTimeout(() => { fb.hidden = true; }, 2500);
 };
 
+$('btn-whatsapp').onclick = () => {
+  const text = $('result-text').value;
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+};
+
 $('btn-new').onclick = () => dispatch({ type: 'RESET' });
 
 $('btn-save-key').onclick = () => {

@@ -23,6 +23,7 @@ section[hidden] { display: none; }
 }
 .big-btn:disabled { opacity: 0.4; }
 .big-btn.stop { background: #dc2626; }
+.big-btn.whatsapp { background: #25d366; }
 
 button.secondary, #busy-error button, #screen-interrupted button, #settings button {
   font-size: 1rem;
