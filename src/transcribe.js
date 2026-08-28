@@ -2,6 +2,12 @@ export const TRANSCRIBE_MODEL = 'gpt-4o-transcribe';
 
 export class TranscriptionError extends Error {}
 
+// Speakers mix languages; each language must stay in its own script.
+const SCRIPT_HINT =
+  'This recording may mix languages. Write every word in its original script: ' +
+  'keep English words such as deploy, follow-up, meeting, standup, and sprint in Latin letters, ' +
+  'and keep Hebrew words in Hebrew letters. Do not transliterate between scripts.';
+
 export async function transcribe(blob, apiKey) {
   const form = new FormData();
   const ext = (blob.type || '').includes('mp4') ? 'm4a' : 'webm';
@@ -9,6 +15,9 @@ export async function transcribe(blob, apiKey) {
   form.append('model', TRANSCRIBE_MODEL);
   // Deliberately no `language` param: auto-detect keeps code-switched words in their
   // original script instead of forcing everything into one language.
+  // The prompt is a style hint, not an instruction the model must obey — it reduces
+  // transliteration (deploy → דיפלוי) but cleanup.js restores whatever slips through.
+  form.append('prompt', SCRIPT_HINT);
 
   let res;
   try {

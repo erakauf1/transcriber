@@ -10,6 +10,7 @@ export function buildSystemPrompt(language) {
     `You clean up voice-note transcripts so they can be sent as chat messages.`,
     `The message is in ${lang}. Your entire output must be in ${lang}.`,
     `If the transcript contains embedded words in another language, keep them exactly as spoken, in their original script. Never translate or transliterate anything.`,
+    `The speech-to-text step sometimes transliterates a foreign term into the local script (for example writing the English word "deploy" as \u05d3\u05d9\u05e4\u05dc\u05d5\u05d9, or "follow-up" as \u05e4\u05d5\u05dc\u05d5\u05d0\u05e4). When a word is clearly a transliterated foreign term, restore it to its original spelling and script. Apply this only to loanwords and technical or business terms that the speaker would have said in the other language. Never do it to names of people or places, and never to an ordinary word of the message's own language. If you are not confident, leave the word exactly as it is.`,
     ``,
     `Do:`,
     `- Remove filler words (um, uh, like, אמם, אה, כאילו), false starts, and repeated words`,

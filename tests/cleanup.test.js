@@ -28,6 +28,16 @@ describe('buildSystemPrompt', () => {
     expect(buildSystemPrompt('he')).toContain('Output only the cleaned message');
   });
 
+  it('instructs restoring transliterated foreign terms to their original script', () => {
+    const p = buildSystemPrompt('he');
+    expect(p).toContain('transliterated');
+    expect(p).toContain('restore it to its original spelling');
+  });
+
+  it('forbids inventing a restoration when the word is genuinely Hebrew', () => {
+    expect(buildSystemPrompt('he')).toContain('If you are not confident, leave the word exactly as it is');
+  });
+
   it('unknown language falls back to English', () => {
     expect(buildSystemPrompt('xx')).toContain('The message is in English');
   });

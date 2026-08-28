@@ -21,6 +21,8 @@ describe('transcribe', () => {
     expect(opts.body).toBeInstanceOf(FormData);
     expect(opts.body.get('model')).toBe(TRANSCRIBE_MODEL);
     expect(opts.body.get('language')).toBeNull(); // spec: auto-detect preserves code-switching
+    // Script hint: discourages transliterating English terms into Hebrew letters
+    expect(opts.body.get('prompt')).toContain('original script');
     expect(opts.body.get('file')).toBeTruthy();
   });
 
