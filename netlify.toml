@@ -5,4 +5,4 @@
 [[headers]]
   for = "/*"
   [headers.values]
-    Content-Security-Policy = "default-src 'self'; connect-src 'self' https://api.openai.com https://api.elevenlabs.io; img-src 'self' data:; style-src 'self' 'unsafe-inline'; media-src 'self' blob:"
+    Content-Security-Policy = "default-src 'self'; connect-src 'self' https://api.openai.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; media-src 'self' blob:"
