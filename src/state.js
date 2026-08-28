@@ -5,6 +5,7 @@ export const initialState = {
   language: null,
   cleanedText: null,
   error: null,
+  autoCopied: false,
 };
 
 export function reduce(state, event) {
@@ -25,12 +26,12 @@ export function reduce(state, event) {
     case 'TRANSCRIBE_RETRY':
       return { ...state, error: null };
     case 'CLEANUP_OK':
-      return { ...state, phase: 'result', cleanedText: event.text, error: null };
+      return { ...state, phase: 'result', cleanedText: event.text, error: null, autoCopied: event.autoCopied ?? false };
     case 'CLEANUP_FAIL':
       // Still show the result screen — the raw transcript is the fallback output.
-      return { ...state, phase: 'result', cleanedText: null, error: event.message };
+      return { ...state, phase: 'result', cleanedText: null, error: event.message, autoCopied: event.autoCopied ?? false };
     case 'CLEANUP_RETRY':
-      return { ...state, phase: 'cleaning', error: null };
+      return { ...state, phase: 'cleaning', error: null, autoCopied: false };
     case 'RESET':
       return { ...initialState };
     default:

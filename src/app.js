@@ -56,6 +56,11 @@ function render() {
     $('result-text').value = state.cleanedText ?? state.rawTranscript ?? '';
     $('raw-text').textContent = state.rawTranscript ?? '';
     $('raw-details').hidden = cleanupFailed; // raw already shown as the main text
+    if (state.autoCopied) {
+      const fb = $('copy-feedback');
+      fb.textContent = 'Copied to clipboard ✓ — paste it into your chat';
+      fb.hidden = false;
+    }
   }
 }
 
@@ -73,9 +78,12 @@ async function runCleanup() {
   try {
     // Undo transliterated work terms in code before the LLM sees the text — see loanwords.js.
     const text = await cleanup(restoreLoanwords(state.rawTranscript), state.language, getApiKey());
-    dispatch({ type: 'CLEANUP_OK', text });
+    const autoCopied = await copyText(text);
+    dispatch({ type: 'CLEANUP_OK', text, autoCopied });
   } catch (err) {
-    dispatch({ type: 'CLEANUP_FAIL', message: err.message });
+    // On cleanup failure the raw transcript is the fallback — auto-copy that instead.
+    const autoCopied = await copyText(state.rawTranscript ?? '');
+    dispatch({ type: 'CLEANUP_FAIL', message: err.message, autoCopied });
   }
 }
 
