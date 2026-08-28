@@ -1,17 +1,17 @@
-import { RnnoiseWorkletNode } from '@sapphi-red/web-noise-suppressor';
+import { RnnoiseWorkletNode, loadRnnoise } from '@sapphi-red/web-noise-suppressor';
 import rnnoiseWorkletUrl from '@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url';
 import rnnoiseWasmUrl from '@sapphi-red/web-noise-suppressor/rnnoise.wasm?url';
-
-let workletLoaded = false;
-
-async function loadWorklet(audioCtx) {
-  if (workletLoaded) return;
-  await audioCtx.audioWorklet.addModule(rnnoiseWorkletUrl);
-  workletLoaded = true;
-}
+import rnnoiseSimdWasmUrl from '@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url';
 
 export async function createPipeline(stream, { noiseSuppression = true } = {}) {
   const audioCtx = new (globalThis.AudioContext || globalThis.webkitAudioContext)();
+
+  // iOS can create AudioContexts in a 'suspended' state — resume before wiring
+  // the graph so that audio actually flows.
+  if (audioCtx.state === 'suspended') {
+    try { await audioCtx.resume(); } catch {}
+  }
+
   const source = audioCtx.createMediaStreamSource(stream);
   const destination = audioCtx.createMediaStreamDestination();
   const analyser = audioCtx.createAnalyser();
@@ -19,15 +19,15 @@ export async function createPipeline(stream, { noiseSuppression = true } = {}) {
 
   let lastNode = source;
 
-  if (noiseSuppression) {
+  if (noiseSuppression && audioCtx.audioWorklet) {
     try {
-      await loadWorklet(audioCtx);
-      const suppressor = new RnnoiseWorkletNode(audioCtx, { wasmUrl: rnnoiseWasmUrl });
+      await audioCtx.audioWorklet.addModule(rnnoiseWorkletUrl);
+      const wasmBinary = await loadRnnoise({ url: rnnoiseWasmUrl, simdUrl: rnnoiseSimdWasmUrl });
+      const suppressor = new RnnoiseWorkletNode(audioCtx, { maxChannels: 1, wasmBinary });
       source.connect(suppressor);
       lastNode = suppressor;
     } catch (err) {
       console.warn('Noise suppression unavailable, falling back to passthrough:', err);
-      workletLoaded = false;
     }
   }
 

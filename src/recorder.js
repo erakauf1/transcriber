@@ -24,27 +24,32 @@ export function createRecorder({ onTick, onLevel, onAutoStop, noiseSuppression =
       throw new Error('Recorder already started');
     }
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    pipeline = await createPipeline(stream, { noiseSuppression });
+    try {
+      pipeline = await createPipeline(stream, { noiseSuppression });
 
-    chunks = [];
-    const mimeType = pickMimeType();
-    mediaRecorder = new MediaRecorder(pipeline.cleanStream, mimeType ? { mimeType } : undefined);
-    mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-    // 1s timeslice so partial audio survives iOS killing the recorder in the background.
-    mediaRecorder.start(1000);
-    startedAt = Date.now();
+      chunks = [];
+      const mimeType = pickMimeType();
+      mediaRecorder = new MediaRecorder(pipeline.cleanStream, mimeType ? { mimeType } : undefined);
+      mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      // 1s timeslice so partial audio survives iOS killing the recorder in the background.
+      mediaRecorder.start(1000);
+      startedAt = Date.now();
 
-    tickInterval = setInterval(() => {
-      const elapsed = Date.now() - startedAt;
-      onTick?.(elapsed);
-      if (elapsed >= MAX_DURATION_MS) {
-        // Stop ticking now to prevent re-entry before the in-flight stop() settles.
-        clearInterval(tickInterval);
-        stop().then((blob) => { if (blob) onAutoStop?.(blob); });
-      }
-    }, 250);
+      tickInterval = setInterval(() => {
+        const elapsed = Date.now() - startedAt;
+        onTick?.(elapsed);
+        if (elapsed >= MAX_DURATION_MS) {
+          // Stop ticking now to prevent re-entry before the in-flight stop() settles.
+          clearInterval(tickInterval);
+          stop().then((blob) => { if (blob) onAutoStop?.(blob); });
+        }
+      }, 250);
 
-    if (onLevel) startLevelMeter();
+      if (onLevel) startLevelMeter();
+    } catch (err) {
+      teardown();
+      throw err;
+    }
   }
 
   function startLevelMeter() {

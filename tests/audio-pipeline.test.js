@@ -3,9 +3,11 @@ import { createPipeline, checkNoiseSuppressionSupport } from '../src/audio-pipel
 
 vi.mock('@sapphi-red/web-noise-suppressor', () => ({
   RnnoiseWorkletNode: vi.fn(),
+  loadRnnoise: vi.fn(() => Promise.resolve(new ArrayBuffer(0))),
 }));
 vi.mock('@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url', () => ({ default: 'mock-worklet-url' }));
 vi.mock('@sapphi-red/web-noise-suppressor/rnnoise.wasm?url', () => ({ default: 'mock-wasm-url' }));
+vi.mock('@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url', () => ({ default: 'mock-simd-wasm-url' }));
 
 function mockAudioContext({ workletSupported = true } = {}) {
   const destination = { stream: 'mock-clean-stream' };
@@ -28,13 +30,16 @@ function mockAudioContext({ workletSupported = true } = {}) {
 
 describe('audio-pipeline', () => {
   let origAudioContext;
+  let origWebkitAudioContext;
 
   beforeEach(() => {
     origAudioContext = globalThis.AudioContext;
+    origWebkitAudioContext = globalThis.webkitAudioContext;
   });
 
   afterEach(() => {
     globalThis.AudioContext = origAudioContext;
+    globalThis.webkitAudioContext = origWebkitAudioContext;
     vi.restoreAllMocks();
   });
 
@@ -74,6 +79,23 @@ describe('audio-pipeline', () => {
     expect(warnSpy).toHaveBeenCalled();
     // Should still produce a working pipeline (passthrough)
     expect(source.connect).toHaveBeenCalledWith(destination);
+    expect(pipeline.cleanStream).toBe('mock-clean-stream');
+  });
+
+  it('wires suppressor node when noiseSuppression is true and worklet succeeds', async () => {
+    const { ctx, source, analyser, destination, suppressorNode } = mockAudioContext();
+    globalThis.AudioContext = vi.fn(() => ctx);
+
+    // Configure the hoisted mocks for this test
+    const { RnnoiseWorkletNode, loadRnnoise } = await import('@sapphi-red/web-noise-suppressor');
+    vi.mocked(RnnoiseWorkletNode).mockReturnValue(suppressorNode);
+    vi.mocked(loadRnnoise).mockResolvedValue(new ArrayBuffer(0));
+
+    const pipeline = await createPipeline('mock-stream', { noiseSuppression: true });
+
+    expect(source.connect).toHaveBeenCalledWith(suppressorNode);
+    expect(suppressorNode.connect).toHaveBeenCalledWith(destination);
+    expect(suppressorNode.connect).toHaveBeenCalledWith(analyser);
     expect(pipeline.cleanStream).toBe('mock-clean-stream');
   });
 });
