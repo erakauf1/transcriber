@@ -118,6 +118,13 @@
           <button id="btn-save-key" class="btn btn-primary btn-block" type="button">Save key</button>
           <p id="key-status" class="hint hint-tight"></p>
         </div>
+        <div class="field">
+          <label for="ns-toggle">Noise suppression</label>
+          <div class="toggle-row">
+            <input id="ns-toggle" type="checkbox" role="switch" />
+            <span id="ns-label" class="hint-tight">Reduces background noise for cleaner transcriptions</span>
+          </div>
+        </div>
         <p class="sheet-note">
           Voice Note records audio, transcribes it with gpt&#8209;4o&#8209;transcribe, and cleans up
           filler words with GPT&#8209;4o. Everything runs on your own API key — nothing is stored.

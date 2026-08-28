@@ -4,8 +4,9 @@ import { cleanup } from './cleanup.js';
 import { detectLanguage } from './language.js';
 import { restoreLoanwords } from './loanwords.js';
 import { copyText } from './clipboard.js';
-import { getApiKey, setApiKey, hasApiKey, getNoiseSuppressionEnabled } from './settings.js';
+import { getApiKey, setApiKey, hasApiKey, getNoiseSuppressionEnabled, setNoiseSuppressionEnabled } from './settings.js';
 import { createVAD } from './vad.js';
+import { checkNoiseSuppressionSupport } from './audio-pipeline.js';
 import { initialState, reduce } from './state.js';
 
 let state = initialState;
@@ -281,5 +282,24 @@ $('btn-save-key').onclick = () => {
   render();
   $('key-status').textContent = saved ? 'Key saved ✓' : 'Key cleared';
 };
+
+// Noise suppression toggle
+(async () => {
+  const supported = await checkNoiseSuppressionSupport();
+  const toggle = $('ns-toggle');
+  const label = $('ns-label');
+
+  if (!supported) {
+    toggle.disabled = true;
+    toggle.checked = false;
+    label.textContent = 'Not supported on this browser';
+    return;
+  }
+
+  toggle.checked = getNoiseSuppressionEnabled();
+  toggle.onchange = () => {
+    setNoiseSuppressionEnabled(toggle.checked);
+  };
+})();
 
 render();
