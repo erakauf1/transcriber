@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ASR comparison</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; padding: 1rem; background: #111827; color: #f9fafb; }
+    button { display: block; width: 100%; padding: 1rem; margin: 0.5rem 0; font-size: 1.1rem; border-radius: 0.75rem; border: none; background: #4f46e5; color: white; }
+    button.rec { background: #dc2626; }
+    input { width: 100%; padding: 0.6rem; margin: 0.25rem 0 0.75rem; border-radius: 0.5rem; border: 1px solid #4b5563; background: #1f2937; color: #f9fafb; box-sizing: border-box; }
+    .col { background: #1f2937; border-radius: 0.75rem; padding: 0.75rem; margin: 0.75rem 0; }
+    .col h3 { margin: 0 0 0.5rem; color: #a5b4fc; font-size: 1rem; }
+    .col p { margin: 0; white-space: pre-wrap; }
+    .meta { color: #9ca3af; font-size: 0.8rem; margin-top: 0.5rem; }
+    audio { width: 100%; margin: 0.5rem 0; }
+    label { color: #9ca3af; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h2>ASR comparison</h2>
+  <p style="color:#9ca3af">Records once, transcribes with each model. Listen to the playback first — if the audio itself sounds bad, the problem is capture, not the model.</p>
+
+  <label for="el-key">ElevenLabs API key (optional — leave empty to skip Scribe)</label>
+  <input id="el-key" type="password" placeholder="xi-..." />
+
+  <button id="btn">🎤 Record</button>
+  <audio id="player" controls hidden></audio>
+  <div id="results"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const openaiKey = localStorage.getItem('openai_api_key'); // same key the app saved
+    const elKeyStored = localStorage.getItem('elevenlabs_api_key');
+    if (elKeyStored) $('el-key').value = elKeyStored;
+    if (!openaiKey) alert('No OpenAI key found in this browser. Open the app first and save your key in Settings.');
+
+    let rec = null, chunks = [], stream = null;
+
+    function col(title) {
+      const div = document.createElement('div');
+      div.className = 'col';
+      div.innerHTML = '<h3></h3><p dir="auto">…</p><div class="meta"></div>';
+      div.querySelector('h3').textContent = title;
+      $('results').prepend(div);
+      return div;
+    }
+
+    async function openaiTranscribe(blob, model) {
+      const form = new FormData();
+      form.append('file', blob, blob.type.includes('mp4') ? 'note.m4a' : 'note.webm');
+      form.append('model', model);
+      const t0 = Date.now();
+      const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST', headers: { Authorization: 'Bearer ' + openaiKey }, body: form,
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      return { text: data.text, ms: Date.now() - t0 };
+    }
+
+    async function scribeTranscribe(blob, key) {
+      const form = new FormData();
+      form.append('file', blob, blob.type.includes('mp4') ? 'note.m4a' : 'note.webm');
+      form.append('model_id', 'scribe_v1');
+      const t0 = Date.now();
+      const res = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+        method: 'POST', headers: { 'xi-api-key': key }, body: form,
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      return { text: data.text, ms: Date.now() - t0 };
+    }
+
+    function run(title, promise) {
+      const div = col(title);
+      promise.then(({ text, ms }) => {
+        div.querySelector('p').textContent = text;
+        div.querySelector('.meta').textContent = (ms / 1000).toFixed(1) + 's';
+      }).catch((err) => {
+        div.querySelector('p').textContent = 'FAILED: ' + err.message;
+      });
+    }
+
+    $('btn').onclick = async () => {
+      if (rec) { rec.stop(); return; }
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunks = [];
+      const mime = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find((t) => MediaRecorder.isTypeSupported(t)) || '';
+      rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      rec.onstop = () => {
+        const blob = new Blob(chunks, { type: rec.mimeType || 'audio/mp4' });
+        stream.getTracks().forEach((t) => t.stop());
+        rec = null;
+        $('btn').textContent = '🎤 Record';
+        $('btn').classList.remove('rec');
+        $('player').src = URL.createObjectURL(blob);
+        $('player').hidden = false;
+
+        $('results').innerHTML = '';
+        run('gpt-4o-transcribe (current)', openaiTranscribe(blob, 'gpt-4o-transcribe'));
+        run('whisper-1', openaiTranscribe(blob, 'whisper-1'));
+        const elKey = $('el-key').value.trim();
+        if (elKey) {
+          localStorage.setItem('elevenlabs_api_key', elKey);
+          run('ElevenLabs Scribe', scribeTranscribe(blob, elKey));
+        }
+      };
+      rec.start(1000);
+      $('btn').textContent = '■ Stop';
+      $('btn').classList.add('rec');
+    };
+  </script>
+</body>
+</html>
