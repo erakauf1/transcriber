@@ -23,3 +23,22 @@ export function setApiKey(key) {
 export function hasApiKey() {
   return getApiKey() !== null;
 }
+
+const NS_KEY = 'noiseSuppressionEnabled';
+
+export function getNoiseSuppressionEnabled() {
+  try {
+    const val = localStorage.getItem(NS_KEY);
+    return val === null ? true : val === 'true';
+  } catch {
+    return true;
+  }
+}
+
+export function setNoiseSuppressionEnabled(enabled) {
+  try {
+    localStorage.setItem(NS_KEY, String(!!enabled));
+  } catch {
+    // Storage blocked — no-op.
+  }
+}

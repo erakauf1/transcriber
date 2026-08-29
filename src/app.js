@@ -4,11 +4,14 @@ import { cleanup } from './cleanup.js';
 import { detectLanguage } from './language.js';
 import { restoreLoanwords } from './loanwords.js';
 import { copyText } from './clipboard.js';
-import { getApiKey, setApiKey, hasApiKey } from './settings.js';
+import { getApiKey, setApiKey, hasApiKey, getNoiseSuppressionEnabled, setNoiseSuppressionEnabled } from './settings.js';
+import { createVAD } from './vad.js';
+import { checkNoiseSuppressionSupport } from './audio-pipeline.js';
 import { initialState, reduce } from './state.js';
 
 let state = initialState;
 let recorder = null;
+let vad = null;
 // Settings is a UI overlay, not a phase — it can sit over any screen, so it
 // stays out of the state machine.
 let settingsOpen = false;
@@ -144,6 +147,7 @@ $('btn-record').onclick = async () => {
   $('timer').textContent = '0:00';
   buildWave();
   recorder = createRecorder({
+    noiseSuppression: getNoiseSuppressionEnabled(),
     onTick: (ms) => { $('timer').textContent = fmt(ms); },
     // The bars keep their designed animation; the live level scales the whole
     // set, floored at .35 so a quiet moment still reads as "listening".
@@ -154,6 +158,8 @@ $('btn-record').onclick = async () => {
       // This recorder instance's life is over either way (recorder.js has
       // already torn it down internally) — clear the module-level reference
       // so the reentrancy guard above doesn't block the *next* Record tap.
+      vad?.stop();
+      vad = null;
       recorder = null;
       // Idempotency guard: this can race a manual Stop that resolved first
       // (both calls share recorder.js's single in-flight stop() promise).
@@ -167,6 +173,19 @@ $('btn-record').onclick = async () => {
   try {
     await recorder.start();
     dispatch({ type: 'RECORD_START' });
+    // Start VAD after recording is live
+    const analyser = recorder.getAnalyser();
+    if (analyser) {
+      vad = createVAD(analyser, {
+        onSpeechStart: () => {
+          $('wave-bars').classList.remove('vad-silent');
+        },
+        onSpeechEnd: () => {
+          $('wave-bars').classList.add('vad-silent');
+        },
+      });
+      vad.start();
+    }
   } catch (err) {
     recorder = null;
     render(); // restore the idle screen's button state (still gated on hasApiKey())
@@ -182,6 +201,8 @@ $('btn-stop').onclick = async () => {
   // A prior tap (or auto-stop/visibilitychange) may have already nulled this
   // out — bail rather than dereferencing a stopped/gone recorder.
   if (!recorder) return;
+  vad?.stop();
+  vad = null;
   const blob = await recorder.stop();
   // This recorder instance's life is over either way — clear the reference
   // so the reentrancy guard on btn-record doesn't block the *next* tap.
@@ -204,6 +225,8 @@ $('btn-stop').onclick = async () => {
 // On return, salvage what the 1s timeslices captured and let the user decide.
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState === 'visible' && state.phase === 'recording' && recorder) {
+    vad?.stop();
+    vad = null;
     const blob = await recorder.stop();
     // This recorder instance's life is over either way — clear the reference
     // so the reentrancy guard on btn-record doesn't block the *next* tap.
@@ -259,5 +282,24 @@ $('btn-save-key').onclick = () => {
   render();
   $('key-status').textContent = saved ? 'Key saved ✓' : 'Key cleared';
 };
+
+// Noise suppression toggle
+(async () => {
+  const supported = await checkNoiseSuppressionSupport();
+  const toggle = $('ns-toggle');
+  const label = $('ns-label');
+
+  if (!supported) {
+    toggle.disabled = true;
+    toggle.checked = false;
+    label.textContent = 'Not supported on this browser';
+    return;
+  }
+
+  toggle.checked = getNoiseSuppressionEnabled();
+  toggle.onchange = () => {
+    setNoiseSuppressionEnabled(toggle.checked);
+  };
+})();
 
 render();

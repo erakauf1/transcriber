@@ -11,8 +11,11 @@
     "prompt-check": "node scripts/prompt-check.js"
   },
   "devDependencies": {
+    "jsdom": "^25.0.0",
     "vite": "^6.0.0",
-    "vitest": "^3.0.0",
-    "jsdom": "^25.0.0"
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "@sapphi-red/web-noise-suppressor": "^0.4.0"
   }
 }

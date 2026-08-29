@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { getApiKey, setApiKey, hasApiKey } from '../src/settings.js';
+import { getApiKey, setApiKey, hasApiKey, getNoiseSuppressionEnabled, setNoiseSuppressionEnabled } from '../src/settings.js';
 
 describe('settings', () => {
   beforeEach(() => localStorage.clear());
@@ -21,5 +21,26 @@ describe('settings', () => {
     setApiKey('   ');
     expect(getApiKey()).toBeNull();
     expect(localStorage.getItem('openai_api_key')).toBeNull();
+  });
+});
+
+describe('noise suppression setting', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('defaults to true when nothing stored', () => {
+    expect(getNoiseSuppressionEnabled()).toBe(true);
+  });
+
+  it('persists false', () => {
+    setNoiseSuppressionEnabled(false);
+    expect(getNoiseSuppressionEnabled()).toBe(false);
+    expect(localStorage.getItem('noiseSuppressionEnabled')).toBe('false');
+  });
+
+  it('persists true', () => {
+    setNoiseSuppressionEnabled(false);
+    setNoiseSuppressionEnabled(true);
+    expect(getNoiseSuppressionEnabled()).toBe(true);
+    expect(localStorage.getItem('noiseSuppressionEnabled')).toBe('true');
   });
 });

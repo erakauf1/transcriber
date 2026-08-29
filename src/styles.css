@@ -215,6 +215,9 @@ body {
   transform-origin: center;
   animation: wave-bar 1.1s ease-in-out infinite;
 }
+.wave-bars.vad-silent {
+  opacity: 0.4;
+}
 
 .stop-btn {
   width: 88px;
@@ -443,6 +446,58 @@ body {
 }
 .field input::placeholder { color: var(--color-neutral-600); }
 .field input:focus-visible { border-color: var(--color-accent); outline: none; }
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.toggle-row span {
+  margin: 0;
+  font: 400 13px/1.4 var(--font-body);
+  color: var(--color-neutral-500);
+}
+
+input[role="switch"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 44px;
+  height: 26px;
+  flex: none;
+  border-radius: 13px;
+  border: 1px solid var(--color-neutral-700);
+  background: var(--color-neutral-800);
+  position: relative;
+  cursor: pointer;
+  transition: background .2s ease, border-color .2s ease;
+}
+input[role="switch"]::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-neutral-400);
+  transition: transform .2s ease, background .2s ease;
+}
+input[role="switch"]:checked {
+  background: var(--color-accent-700);
+  border-color: var(--color-accent);
+}
+input[role="switch"]:checked::before {
+  transform: translateX(18px);
+  background: var(--color-text);
+}
+input[role="switch"]:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+input[role="switch"]:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
 
 .sheet-note {
   margin: 8px 0 0;
