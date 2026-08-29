@@ -54,6 +54,7 @@ describe('audio-pipeline', () => {
     expect(source.connect).toHaveBeenCalledWith(destination);
     expect(source.connect).toHaveBeenCalledWith(analyser);
     expect(pipeline.cleanStream).toBe('mock-clean-stream');
+    expect(pipeline.rawStream).toBe('mock-stream');
     expect(pipeline.analyser).toBe(analyser);
     expect(typeof pipeline.destroy).toBe('function');
   });

@@ -36,6 +36,7 @@ export async function createPipeline(stream, { noiseSuppression = true } = {}) {
 
   return {
     cleanStream: destination.stream,
+    rawStream: stream,
     analyser,
     destroy() {
       audioCtx.close();

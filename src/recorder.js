@@ -29,7 +29,7 @@ export function createRecorder({ onTick, onLevel, onAutoStop, noiseSuppression =
 
       chunks = [];
       const mimeType = pickMimeType();
-      mediaRecorder = new MediaRecorder(pipeline.cleanStream, mimeType ? { mimeType } : undefined);
+      mediaRecorder = new MediaRecorder(pipeline.rawStream, mimeType ? { mimeType } : undefined);
       mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
       // 1s timeslice so partial audio survives iOS killing the recorder in the background.
       mediaRecorder.start(1000);
