@@ -32,6 +32,8 @@ export function reduce(state, event) {
       return { ...state, phase: 'result', cleanedText: null, error: event.message, autoCopied: event.autoCopied ?? false };
     case 'CLEANUP_RETRY':
       return { ...state, phase: 'cleaning', error: null, autoCopied: false };
+    case 'REFINE_OK':
+      return { ...state, cleanedText: event.text };
     case 'RESET':
       return { ...initialState };
     default:

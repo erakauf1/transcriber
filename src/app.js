@@ -8,6 +8,7 @@ import { getApiKey, setApiKey, hasApiKey, getNoiseSuppressionEnabled, setNoiseSu
 import { createVAD } from './vad.js';
 import { checkNoiseSuppressionSupport } from './audio-pipeline.js';
 import { initialState, reduce } from './state.js';
+import { generateRefinementChips, applyRefinement } from './refine.js';
 
 let state = initialState;
 let recorder = null;
@@ -18,6 +19,13 @@ let settingsOpen = false;
 // One-shot latch so the auto-copy confirmation fires when the result arrives,
 // not on every later re-render of the same result.
 let autoCopyAnnounced = false;
+
+// Refine-panel overlay state (not in reducer — purely UI, layered over result).
+let refineOpen = false;
+let refineChips = null;   // null = not yet fetched; Array = fetched (may be empty on error)
+let refineLoading = false;
+let refineApplying = false;
+let refineError = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -48,6 +56,16 @@ function buildWave() {
 }
 
 function render() {
+  // Reset refine overlay state whenever we leave the result screen, so it
+  // starts fresh on the next result (new recording or retry).
+  if (state.phase !== 'result') {
+    refineOpen = false;
+    refineChips = null;
+    refineLoading = false;
+    refineApplying = false;
+    refineError = null;
+  }
+
   $('screen-idle').hidden = state.phase !== 'idle';
   $('screen-recording').hidden = state.phase !== 'recording';
   $('screen-busy').hidden = state.phase !== 'transcribing' && state.phase !== 'cleaning';
@@ -87,6 +105,47 @@ function render() {
     if (state.autoCopied && !autoCopyAnnounced) {
       autoCopyAnnounced = true;
       showCopied('Copied ✓ — paste it into your chat');
+    }
+
+    // Refine panel — only available when cleanup succeeded.
+    const canRefine = !cleanupFailed;
+    const btnRefine = $('btn-refine');
+    btnRefine.hidden = !canRefine;
+    btnRefine.classList.toggle('active', refineOpen);
+
+    $('refine-panel').hidden = !(canRefine && refineOpen);
+
+    if (canRefine && refineOpen) {
+      const busy = refineLoading || refineApplying;
+      const loadingEl = $('refine-loading');
+      loadingEl.hidden = !busy;
+      if (busy) {
+        $('refine-loading-label').textContent = refineApplying ? 'Refining…' : 'Generating options…';
+      }
+
+      const hasChips = Array.isArray(refineChips) && refineChips.length > 0;
+      const chipsEl = $('refine-chips');
+      chipsEl.hidden = !hasChips || busy;
+      if (hasChips && !busy) {
+        chipsEl.replaceChildren(
+          ...refineChips.map((chip) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'refine-chip';
+            btn.textContent = chip.label;
+            btn.onclick = () => handleChipClick(chip);
+            return btn;
+          })
+        );
+      }
+
+      const errorEl = $('refine-error');
+      errorEl.hidden = !refineError;
+      if (refineError) errorEl.textContent = refineError;
+
+      $('result-text').disabled = refineApplying;
+    } else {
+      $('result-text').disabled = false;
     }
   } else {
     autoCopyAnnounced = false;
@@ -265,6 +324,57 @@ $('btn-whatsapp').onclick = () => {
   const text = $('result-text').value;
   window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
 };
+
+$('btn-refine').onclick = async () => {
+  if (refineApplying) return;
+  refineOpen = !refineOpen;
+  render();
+
+  // Fetch chips the first time the panel opens (or if it had no chips yet).
+  if (refineOpen && !refineChips && !refineLoading) {
+    refineLoading = true;
+    refineError = null;
+    render();
+    try {
+      refineChips = await generateRefinementChips(
+        $('result-text').value,
+        state.language ?? 'en',
+        getApiKey()
+      );
+    } catch (err) {
+      refineError = err.message;
+      refineChips = null;
+    } finally {
+      refineLoading = false;
+    }
+    render();
+  }
+};
+
+async function handleChipClick(chip) {
+  if (refineApplying) return;
+  refineApplying = true;
+  refineError = null;
+  render();
+  try {
+    const refined = await applyRefinement(
+      $('result-text').value,
+      state.language ?? 'en',
+      chip.instruction,
+      getApiKey()
+    );
+    // Close the panel and reset chips so next open generates fresh options for the new text.
+    refineOpen = false;
+    refineChips = null;
+    refineApplying = false;
+    // Dispatch keeps cleanedText in sync so render() doesn't overwrite the textarea.
+    dispatch({ type: 'REFINE_OK', text: refined });
+  } catch (err) {
+    refineApplying = false;
+    refineError = err.message;
+    render();
+  }
+}
 
 $('btn-new').onclick = () => dispatch({ type: 'RESET' });
 
