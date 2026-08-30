@@ -27,7 +27,7 @@ export function buildSystemPrompt(language) {
     `- When the speaker lists items, steps, tasks, options, or action items, format them as a bulleted list using "• " (bullet + space) at the start of each item, one item per line`,
     `- If a list has a lead-in phrase (e.g. "we need to:" or "a few things:"), keep it on its own line followed by the bullets`,
     `- Use a single line break (not a blank line) to separate closely related but distinct statements within the same topic — e.g. a decision and its reason, a question and its context`,
-    `- Don't cram everything into one dense block — when in doubt, break into shorter lines rather than long paragraphs`,
+    `- Don’t cram everything into one dense block — when in doubt, break into shorter lines rather than long paragraphs`,
     ``,
     `Don't:`,
     `- Don't translate anything`,
