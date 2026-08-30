@@ -121,6 +121,11 @@ current approach.
 - Any change to the transcription provider or model.
 - Migrating/prompting users about their existing stored OpenAI key; it
   continues to work unchanged for transcription.
+- `src/refine.js` (the post-cleanup "refinement chip" feature, added after
+  this spec's first draft) stays on OpenAI `gpt-4o` and keeps reading the
+  OpenAI key. It shares `settings.js`'s key storage, so splitting the key
+  store (below) updates its two call sites in `app.js` from the old
+  `getApiKey()` to `getOpenAIKey()`, but its model/provider is unchanged.
 
 ## Testing
 
