@@ -1,8 +1,9 @@
-const STORAGE_KEY = 'openai_api_key';
+const OPENAI_STORAGE_KEY = 'openai_api_key';
+const ANTHROPIC_STORAGE_KEY = 'anthropic_api_key';
 
-export function getApiKey() {
+function readKey(storageKey) {
   try {
-    const value = (localStorage.getItem(STORAGE_KEY) || '').trim();
+    const value = (localStorage.getItem(storageKey) || '').trim();
     return value || null;
   } catch {
     // Storage blocked (e.g. Safari "Block All Cookies") — behave as if no key is saved.
@@ -10,18 +11,34 @@ export function getApiKey() {
   }
 }
 
-export function setApiKey(key) {
+function writeKey(storageKey, key) {
   try {
     const value = (key || '').trim();
-    if (value) localStorage.setItem(STORAGE_KEY, value);
-    else localStorage.removeItem(STORAGE_KEY);
+    if (value) localStorage.setItem(storageKey, value);
+    else localStorage.removeItem(storageKey);
   } catch {
     // Storage blocked — no-op.
   }
 }
 
-export function hasApiKey() {
-  return getApiKey() !== null;
+export function getOpenAIKey() {
+  return readKey(OPENAI_STORAGE_KEY);
+}
+export function setOpenAIKey(key) {
+  writeKey(OPENAI_STORAGE_KEY, key);
+}
+export function hasOpenAIKey() {
+  return getOpenAIKey() !== null;
+}
+
+export function getAnthropicKey() {
+  return readKey(ANTHROPIC_STORAGE_KEY);
+}
+export function setAnthropicKey(key) {
+  writeKey(ANTHROPIC_STORAGE_KEY, key);
+}
+export function hasAnthropicKey() {
+  return getAnthropicKey() !== null;
 }
 
 const NS_KEY = 'noiseSuppressionEnabled';
