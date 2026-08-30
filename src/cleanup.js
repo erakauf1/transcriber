@@ -75,15 +75,16 @@ export async function cleanup(text, language, apiKey) {
       headers: {
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         model: CLEANUP_MODEL,
         max_tokens: 4096,
-        // Zero, not merely low: sampling randomness was measured to make the model
-        // occasionally "repair" a malformed place name into a different real city
-        // (רעננה -> הרצליה). Determinism is what a faithful-cleanup task wants.
-        temperature: 0,
+        // This is a bounded transformation task, not a reasoning task — disabling
+        // adaptive thinking keeps the full max_tokens budget available for the
+        // output instead of sharing it with thinking.
+        thinking: { type: 'disabled' },
         system: buildSystemPrompt(language),
         messages: [...buildFewShotMessages(language), { role: 'user', content: text }],
       }),
@@ -95,7 +96,9 @@ export async function cleanup(text, language, apiKey) {
   if (!res.ok) throw new CleanupError(`Cleanup failed (HTTP ${res.status})`);
 
   const data = await res.json();
-  const out = data.content?.[0]?.text?.trim();
+  // content[] is an array of typed blocks (thinking, text, ...) — find the text
+  // block rather than assuming it's first, since a thinking block can precede it.
+  const out = data.content?.find((b) => b.type === 'text')?.text?.trim();
   if (!out) throw new CleanupError('Cleanup returned empty output');
   return out;
 }

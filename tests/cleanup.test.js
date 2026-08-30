@@ -65,7 +65,7 @@ describe('buildSystemPrompt', () => {
 describe('cleanup', () => {
   it('posts system + few-shot + user messages to the Anthropic Messages API and trims the reply', async () => {
     const fetchMock = vi.fn(async () =>
-      okResponse({ content: [{ text: '  נקי לגמרי  ' }] })
+      okResponse({ content: [{ type: 'text', text: '  נקי לגמרי  ' }] })
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -76,12 +76,14 @@ describe('cleanup', () => {
     expect(url).toBe('https://api.anthropic.com/v1/messages');
     expect(opts.headers['x-api-key']).toBe('sk-ant-test');
     expect(opts.headers['anthropic-version']).toBe('2023-06-01');
+    expect(opts.headers['anthropic-dangerous-direct-browser-access']).toBe('true');
 
     const body = JSON.parse(opts.body);
     expect(body.model).toBe(CLEANUP_MODEL);
     expect(body.max_tokens).toBe(4096);
-    // Pinned: nonzero temperature was measured to cause name substitution
-    expect(body.temperature).toBe(0);
+    // Pinned: temperature isn't a valid parameter on this model — sending it (even 0) is a 400
+    expect(body.temperature).toBeUndefined();
+    expect(body.thinking).toEqual({ type: 'disabled' });
     expect(body.system).toBe(buildSystemPrompt('he'));
 
     // Few-shot examples precede the real message and alternate user/assistant
@@ -91,10 +93,12 @@ describe('cleanup', () => {
     fewShot.forEach((m, i) => {
       expect(m.role).toBe(i % 2 === 0 ? 'user' : 'assistant');
     });
+    // The name-preservation example is the whole point of this migration
+    expect(fewShot.some((m) => m.content.includes('רעננה'))).toBe(true);
   });
 
   it('uses English few-shot examples for English transcripts', async () => {
-    const fetchMock = vi.fn(async () => okResponse({ content: [{ text: 'clean' }] }));
+    const fetchMock = vi.fn(async () => okResponse({ content: [{ type: 'text', text: 'clean' }] }));
     vi.stubGlobal('fetch', fetchMock);
 
     await cleanup('raw text', 'en', 'sk-ant-test');
@@ -102,6 +106,17 @@ describe('cleanup', () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     const fewShot = body.messages.slice(0, -1);
     expect(fewShot.every((m) => /^[\x00-\x7F\s.,'-]*$/.test(m.content))).toBe(true);
+    // The name-preservation example is the whole point of this migration
+    expect(fewShot.some((m) => m.content.includes('Raanana'))).toBe(true);
+  });
+
+  it('parses the text block even when a thinking block precedes it', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse({ content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: '  clean output  ' }] })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const out = await cleanup('raw', 'en', 'sk-ant-test');
+    expect(out).toBe('clean output');
   });
 
   it('throws CleanupError without calling fetch when no API key is configured', async () => {
