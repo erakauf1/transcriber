@@ -63,33 +63,77 @@ describe('buildSystemPrompt', () => {
 });
 
 describe('cleanup', () => {
-  it('posts system+user messages to chat completions and trims the reply', async () => {
+  it('posts system + few-shot + user messages to the Anthropic Messages API and trims the reply', async () => {
     const fetchMock = vi.fn(async () =>
-      okResponse({ choices: [{ message: { content: '  נקי לגמרי  ' } }] })
+      okResponse({ content: [{ type: 'text', text: '  נקי לגמרי  ' }] })
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const out = await cleanup('טקסט גולמי', 'he', 'sk-test');
+    const out = await cleanup('טקסט גולמי', 'he', 'sk-ant-test');
 
     expect(out).toBe('נקי לגמרי');
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://api.openai.com/v1/chat/completions');
-    expect(opts.headers.Authorization).toBe('Bearer sk-test');
+    expect(url).toBe('https://api.anthropic.com/v1/messages');
+    expect(opts.headers['x-api-key']).toBe('sk-ant-test');
+    expect(opts.headers['anthropic-version']).toBe('2023-06-01');
+    expect(opts.headers['anthropic-dangerous-direct-browser-access']).toBe('true');
+
     const body = JSON.parse(opts.body);
     expect(body.model).toBe(CLEANUP_MODEL);
-    // Pinned: nonzero temperature was measured to cause name substitution
-    expect(body.temperature).toBe(0);
-    expect(body.messages[0]).toEqual({ role: 'system', content: buildSystemPrompt('he') });
-    expect(body.messages[1]).toEqual({ role: 'user', content: 'טקסט גולמי' });
+    expect(body.max_tokens).toBe(4096);
+    // Pinned: temperature isn't a valid parameter on this model — sending it (even 0) is a 400
+    expect(body.temperature).toBeUndefined();
+    expect(body.thinking).toEqual({ type: 'disabled' });
+    expect(body.system).toBe(buildSystemPrompt('he'));
+
+    // Few-shot examples precede the real message and alternate user/assistant
+    expect(body.messages.at(-1)).toEqual({ role: 'user', content: 'טקסט גולמי' });
+    const fewShot = body.messages.slice(0, -1);
+    expect(fewShot.length).toBeGreaterThan(0);
+    fewShot.forEach((m, i) => {
+      expect(m.role).toBe(i % 2 === 0 ? 'user' : 'assistant');
+    });
+    // The name-preservation example is the whole point of this migration
+    expect(fewShot.some((m) => m.content.includes('רעננה'))).toBe(true);
+  });
+
+  it('uses English few-shot examples for English transcripts', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ content: [{ type: 'text', text: 'clean' }] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await cleanup('raw text', 'en', 'sk-ant-test');
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const fewShot = body.messages.slice(0, -1);
+    expect(fewShot.every((m) => /^[\x00-\x7F\s.,'-]*$/.test(m.content))).toBe(true);
+    // The name-preservation example is the whole point of this migration
+    expect(fewShot.some((m) => m.content.includes('Raanana'))).toBe(true);
+  });
+
+  it('parses the text block even when a thinking block precedes it', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse({ content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: '  clean output  ' }] })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const out = await cleanup('raw', 'en', 'sk-ant-test');
+    expect(out).toBe('clean output');
+  });
+
+  it('throws CleanupError without calling fetch when no API key is configured', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(cleanup('x', 'he', null)).rejects.toBeInstanceOf(CleanupError);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('throws CleanupError on HTTP error', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })));
-    await expect(cleanup('x', 'he', 'sk-test')).rejects.toBeInstanceOf(CleanupError);
+    await expect(cleanup('x', 'he', 'sk-ant-test')).rejects.toBeInstanceOf(CleanupError);
   });
 
   it('throws CleanupError on empty completion', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => okResponse({ choices: [] })));
-    await expect(cleanup('x', 'he', 'sk-test')).rejects.toBeInstanceOf(CleanupError);
+    vi.stubGlobal('fetch', vi.fn(async () => okResponse({ content: [] })));
+    await expect(cleanup('x', 'he', 'sk-ant-test')).rejects.toBeInstanceOf(CleanupError);
   });
 });

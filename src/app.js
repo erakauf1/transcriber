@@ -4,7 +4,11 @@ import { cleanup } from './cleanup.js';
 import { detectLanguage } from './language.js';
 import { restoreLoanwords } from './loanwords.js';
 import { copyText } from './clipboard.js';
-import { getApiKey, setApiKey, hasApiKey, getNoiseSuppressionEnabled, setNoiseSuppressionEnabled } from './settings.js';
+import {
+  getOpenAIKey, setOpenAIKey, hasOpenAIKey,
+  getAnthropicKey, setAnthropicKey, hasAnthropicKey,
+  getNoiseSuppressionEnabled, setNoiseSuppressionEnabled,
+} from './settings.js';
 import { createVAD } from './vad.js';
 import { checkNoiseSuppressionSupport } from './audio-pipeline.js';
 import { initialState, reduce } from './state.js';
@@ -74,16 +78,17 @@ function render() {
   $('settings').hidden = !settingsOpen;
   $('btn-settings').hidden = settingsOpen; // the sheet's own Done button replaces it
 
-  $('btn-record').disabled = !hasApiKey();
-  $('idle-hint').textContent = hasApiKey()
+  $('btn-record').disabled = !hasOpenAIKey();
+  $('idle-hint').textContent = hasOpenAIKey()
     ? 'Up to 5 minutes'
     : 'Add your OpenAI API key in Settings first';
   if (state.phase === 'idle') {
     // Reflects saved-key state on load and on every idle render. This also
     // overwrites the save handler's one-shot "Key cleared" message on the
-    // very next render — acceptable, since hasApiKey() === false already
-    // implies no key is saved.
-    $('key-status').textContent = hasApiKey() ? 'Key saved ✓' : '';
+    // very next render — acceptable, since hasOpenAIKey()/hasAnthropicKey()
+    // === false already implies no key is saved.
+    $('key-status-openai').textContent = hasOpenAIKey() ? 'Key saved ✓' : '';
+    $('key-status-anthropic').textContent = hasAnthropicKey() ? 'Key saved ✓' : '';
   }
 
   if (state.phase === 'transcribing' || state.phase === 'cleaning') {
@@ -169,7 +174,7 @@ function showCopied(message) {
 
 async function runTranscription() {
   try {
-    const text = await transcribe(state.audioBlob, getApiKey());
+    const text = await transcribe(state.audioBlob, getOpenAIKey());
     dispatch({ type: 'TRANSCRIBE_OK', text, language: detectLanguage(text) });
     runCleanup();
   } catch (err) {
@@ -180,7 +185,7 @@ async function runTranscription() {
 async function runCleanup() {
   try {
     // Undo transliterated work terms in code before the LLM sees the text — see loanwords.js.
-    const text = await cleanup(restoreLoanwords(state.rawTranscript), state.language, getApiKey());
+    const text = await cleanup(restoreLoanwords(state.rawTranscript), state.language, getAnthropicKey());
     const autoCopied = await copyText(text);
     dispatch({ type: 'CLEANUP_OK', text, autoCopied });
   } catch (err) {
@@ -247,7 +252,7 @@ $('btn-record').onclick = async () => {
     }
   } catch (err) {
     recorder = null;
-    render(); // restore the idle screen's button state (still gated on hasApiKey())
+    render(); // restore the idle screen's button state (still gated on hasOpenAIKey())
     alert(
       err.name === 'NotAllowedError'
         ? 'Microphone access denied. Enable it in iOS Settings → Apps → Safari → Microphone, then try again.'
@@ -339,7 +344,7 @@ $('btn-refine').onclick = async () => {
       refineChips = await generateRefinementChips(
         $('result-text').value,
         state.language ?? 'en',
-        getApiKey()
+        getOpenAIKey()
       );
     } catch (err) {
       refineError = err.message;
@@ -361,7 +366,7 @@ async function handleChipClick(chip) {
       $('result-text').value,
       state.language ?? 'en',
       chip.instruction,
-      getApiKey()
+      getOpenAIKey()
     );
     // Close the panel and reset chips so next open generates fresh options for the new text.
     refineOpen = false;
@@ -382,15 +387,23 @@ const setSettingsOpen = (open) => { settingsOpen = open; render(); };
 $('btn-settings').onclick = () => setSettingsOpen(true);
 $('btn-settings-done').onclick = () => setSettingsOpen(false);
 
-$('btn-save-key').onclick = () => {
-  setApiKey($('api-key').value);
-  const saved = hasApiKey();
-  $('api-key').value = '';
-  // Close on a successful save — the sheet's only job is done. Clearing the
-  // key keeps it open so the status line is actually readable.
-  settingsOpen = !saved;
+$('btn-save-key-openai').onclick = () => {
+  setOpenAIKey($('api-key-openai').value);
+  const saved = hasOpenAIKey();
+  $('api-key-openai').value = '';
+  // Two independent key fields now share the sheet, so a single save no
+  // longer implies "the sheet's job is done" — leave it open either way and
+  // let the user tap Done themselves.
   render();
-  $('key-status').textContent = saved ? 'Key saved ✓' : 'Key cleared';
+  $('key-status-openai').textContent = saved ? 'Key saved ✓' : 'Key cleared';
+};
+
+$('btn-save-key-anthropic').onclick = () => {
+  setAnthropicKey($('api-key-anthropic').value);
+  const saved = hasAnthropicKey();
+  $('api-key-anthropic').value = '';
+  render();
+  $('key-status-anthropic').textContent = saved ? 'Key saved ✓' : 'Key cleared';
 };
 
 // Noise suppression toggle

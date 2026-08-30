@@ -125,10 +125,16 @@
       </div>
       <div class="sheet-body">
         <div class="field">
-          <label for="api-key">OpenAI API key</label>
-          <input id="api-key" type="password" autocomplete="off" placeholder="sk-••••••••••••••" />
-          <button id="btn-save-key" class="btn btn-primary btn-block" type="button">Save key</button>
-          <p id="key-status" class="hint hint-tight"></p>
+          <label for="api-key-openai">OpenAI API key</label>
+          <input id="api-key-openai" type="password" autocomplete="off" placeholder="sk-••••••••••••••" />
+          <button id="btn-save-key-openai" class="btn btn-primary btn-block" type="button">Save key</button>
+          <p id="key-status-openai" class="hint hint-tight"></p>
+        </div>
+        <div class="field">
+          <label for="api-key-anthropic">Anthropic API key</label>
+          <input id="api-key-anthropic" type="password" autocomplete="off" placeholder="sk-ant-••••••••••••••" />
+          <button id="btn-save-key-anthropic" class="btn btn-primary btn-block" type="button">Save key</button>
+          <p id="key-status-anthropic" class="hint hint-tight"></p>
         </div>
         <div class="field">
           <label for="ns-toggle">Noise suppression</label>
@@ -138,8 +144,10 @@
           </div>
         </div>
         <p class="sheet-note">
-          Voice Note records audio, transcribes it with gpt&#8209;4o&#8209;transcribe, and cleans up
-          filler words with GPT&#8209;4o. Everything runs on your own API key — nothing is stored.
+          Voice Note records audio and transcribes it with gpt&#8209;4o&#8209;transcribe (OpenAI), then
+          cleans up filler words with Claude Sonnet 5 (Anthropic). Everything runs on your own API
+          keys — nothing is stored except in your browser. The Anthropic key is optional: without
+          it you'll get the raw transcript instead of a cleaned-up one.
         </p>
       </div>
     </section>

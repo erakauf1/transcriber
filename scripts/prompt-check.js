@@ -1,13 +1,13 @@
 // Semi-manual prompt check: runs every fixture through the real cleanup API
 // and prints raw vs cleaned for human review. Not pass/fail — eyeball it.
-// Usage: OPENAI_API_KEY=sk-... npm run prompt-check
+// Usage: ANTHROPIC_API_KEY=sk-ant-... npm run prompt-check
 import { readFileSync } from 'node:fs';
 import { cleanup } from '../src/cleanup.js';
 import { detectLanguage } from '../src/language.js';
 
-const apiKey = process.env.OPENAI_API_KEY;
+const apiKey = process.env.ANTHROPIC_API_KEY;
 if (!apiKey) {
-  console.error('Set OPENAI_API_KEY first: OPENAI_API_KEY=sk-... npm run prompt-check');
+  console.error('Set ANTHROPIC_API_KEY first: ANTHROPIC_API_KEY=sk-ant-... npm run prompt-check');
   process.exit(1);
 }
 

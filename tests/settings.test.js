@@ -1,26 +1,59 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { getApiKey, setApiKey, hasApiKey, getNoiseSuppressionEnabled, setNoiseSuppressionEnabled } from '../src/settings.js';
+import {
+  getOpenAIKey, setOpenAIKey, hasOpenAIKey,
+  getAnthropicKey, setAnthropicKey, hasAnthropicKey,
+  getNoiseSuppressionEnabled, setNoiseSuppressionEnabled,
+} from '../src/settings.js';
 
-describe('settings', () => {
+describe('OpenAI key storage', () => {
   beforeEach(() => localStorage.clear());
 
   it('returns null when no key stored', () => {
-    expect(getApiKey()).toBeNull();
-    expect(hasApiKey()).toBe(false);
+    expect(getOpenAIKey()).toBeNull();
+    expect(hasOpenAIKey()).toBe(false);
   });
 
   it('stores and retrieves a key, trimmed', () => {
-    setApiKey('  sk-test-123  ');
-    expect(getApiKey()).toBe('sk-test-123');
-    expect(hasApiKey()).toBe(true);
+    setOpenAIKey('  sk-test-123  ');
+    expect(getOpenAIKey()).toBe('sk-test-123');
+    expect(hasOpenAIKey()).toBe(true);
     expect(localStorage.getItem('openai_api_key')).toBe('sk-test-123');
   });
 
   it('setting an empty/whitespace key clears storage', () => {
-    setApiKey('sk-test-123');
-    setApiKey('   ');
-    expect(getApiKey()).toBeNull();
+    setOpenAIKey('sk-test-123');
+    setOpenAIKey('   ');
+    expect(getOpenAIKey()).toBeNull();
     expect(localStorage.getItem('openai_api_key')).toBeNull();
+  });
+});
+
+describe('Anthropic key storage', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('returns null when no key stored', () => {
+    expect(getAnthropicKey()).toBeNull();
+    expect(hasAnthropicKey()).toBe(false);
+  });
+
+  it('stores and retrieves a key, trimmed', () => {
+    setAnthropicKey('  sk-ant-test-123  ');
+    expect(getAnthropicKey()).toBe('sk-ant-test-123');
+    expect(hasAnthropicKey()).toBe(true);
+    expect(localStorage.getItem('anthropic_api_key')).toBe('sk-ant-test-123');
+  });
+
+  it('setting an empty/whitespace key clears storage', () => {
+    setAnthropicKey('sk-ant-test-123');
+    setAnthropicKey('   ');
+    expect(getAnthropicKey()).toBeNull();
+    expect(localStorage.getItem('anthropic_api_key')).toBeNull();
+  });
+
+  it('is independent from the OpenAI key', () => {
+    setOpenAIKey('sk-openai');
+    expect(getAnthropicKey()).toBeNull();
+    expect(hasAnthropicKey()).toBe(false);
   });
 });
 
