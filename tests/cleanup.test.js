@@ -1,9 +1,23 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { buildSystemPrompt, cleanup, CleanupError, CLEANUP_MODEL } from '../src/cleanup.js';
 
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 const okResponse = (json) => ({ ok: true, json: async () => json });
+const errResponse = (status, body) => ({ ok: false, status, json: async () => body });
+
+// withRetry's default sleep uses setTimeout, which fake timers intercept — this drains
+// any pending backoff waits so retry tests don't depend on wall-clock time.
+async function flushRetryDelays() {
+  for (let i = 0; i < 5; i++) {
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(10_000);
+  }
+}
 
 describe('buildSystemPrompt', () => {
   it('locks output language to Hebrew', () => {
@@ -127,13 +141,89 @@ describe('cleanup', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('throws CleanupError on HTTP error', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })));
+  it('throws CleanupError on a terminal HTTP error (single attempt, no retry)', async () => {
+    // 400 is a terminal status (malformed request) — distinct from the 5xx/429 retry
+    // tests below, which need a transient status to exercise the retry loop.
+    const fetchMock = vi.fn(async () => ({ ok: false, status: 400 }));
+    vi.stubGlobal('fetch', fetchMock);
     await expect(cleanup('x', 'he', 'sk-ant-test')).rejects.toBeInstanceOf(CleanupError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('throws CleanupError on empty completion', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => okResponse({ content: [] })));
+  it('throws CleanupError on empty completion, without retrying', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ content: [] }));
+    vi.stubGlobal('fetch', fetchMock);
     await expect(cleanup('x', 'he', 'sk-ant-test')).rejects.toBeInstanceOf(CleanupError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  describe('retry on transient failures', () => {
+    it('recovers from 2 failed attempts (429) and returns the cleaned text from the 3rd', async () => {
+      let calls = 0;
+      const fetchMock = vi.fn(async () => {
+        calls++;
+        if (calls <= 2) {
+          return errResponse(429, { type: 'error', error: { type: 'rate_limit_error', message: 'slow down' } });
+        }
+        return okResponse({ content: [{ type: 'text', text: 'recovered cleanup' }] });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const promise = cleanup('raw text', 'en', 'sk-ant-test');
+      await flushRetryDelays();
+      const text = await promise;
+
+      expect(text).toBe('recovered cleanup');
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('retries Anthropic overload (529) the same as a 429', async () => {
+      let calls = 0;
+      const fetchMock = vi.fn(async () => {
+        calls++;
+        if (calls === 1) {
+          return errResponse(529, { type: 'error', error: { type: 'overloaded_error', message: 'overloaded' } });
+        }
+        return okResponse({ content: [{ type: 'text', text: 'ok after overload' }] });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const promise = cleanup('raw text', 'en', 'sk-ant-test');
+      await flushRetryDelays();
+      const text = await promise;
+
+      expect(text).toBe('ok after overload');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry a terminal error (authentication) — fails on the very first attempt', async () => {
+      const fetchMock = vi.fn(async () =>
+        errResponse(401, { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } })
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(cleanup('raw text', 'en', 'sk-ant-test')).rejects.toBeInstanceOf(CleanupError);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    // This is the core reliability guarantee of the retry layer: a recording is never
+    // silently discarded just because the cleanup call never recovers. Once every retry
+    // attempt is exhausted, cleanup() still throws CleanupError — app.js's existing
+    // CLEANUP_FAIL handling then falls back to showing the raw transcript (see
+    // tests/state.test.js: "CLEANUP_FAIL still reaches result, with raw transcript and
+    // error") instead of losing the recording entirely.
+    it('exhausts retries on a persistent 429 and still throws CleanupError (raw-transcript fallback path)', async () => {
+      const fetchMock = vi.fn(async () =>
+        errResponse(429, { type: 'error', error: { type: 'rate_limit_error', message: 'still limited' } })
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const promise = cleanup('raw text', 'en', 'sk-ant-test').catch((e) => e);
+      await flushRetryDelays();
+      const result = await promise;
+
+      expect(result).toBeInstanceOf(CleanupError);
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(1); // it did retry, not just fail once
+    });
   });
 });

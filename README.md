@@ -52,6 +52,8 @@ No runtime dependencies — Vite for bundling, Vitest for tests.
 | `src/transcribe.js` | OpenAI transcription API call |
 | `src/loanwords.js` | Deterministic lookup table — restores transliterated work terms to Latin before cleanup |
 | `src/cleanup.js` | Anthropic Messages API call for transcript cleanup |
+| `src/retry.js` | Exponential backoff + retry runner shared by transcription and cleanup |
+| `src/api-errors.js` | Classifies OpenAI/Anthropic error responses as retryable vs terminal |
 | `src/language.js` | Hebrew/English detection by character count |
 | `src/settings.js` | API key in localStorage |
 | `src/clipboard.js` | `navigator.clipboard.writeText` wrapper |

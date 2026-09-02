@@ -1,0 +1,86 @@
+[
+  {
+    "name": "rate-limit-requests",
+    "status": 429,
+    "body": {
+      "error": {
+        "message": "Rate limit reached for requests. Please try again in 20s.",
+        "type": "requests",
+        "param": null,
+        "code": "rate_limit_exceeded"
+      }
+    },
+    "expectedRetryable": true,
+    "reason": "transient throttling — backing off and retrying is the correct response"
+  },
+  {
+    "name": "insufficient-quota",
+    "status": 429,
+    "body": {
+      "error": {
+        "message": "You exceeded your current quota, please check your plan and billing details.",
+        "type": "insufficient_quota",
+        "param": null,
+        "code": "insufficient_quota"
+      }
+    },
+    "expectedRetryable": false,
+    "reason": "same HTTP status as a rate limit, but this is a billing/quota exhaustion — no amount of retrying helps until the account is topped up"
+  },
+  {
+    "name": "server-error",
+    "status": 500,
+    "body": {
+      "error": {
+        "message": "The server had an error while processing your request. Sorry about that!",
+        "type": "server_error",
+        "param": null,
+        "code": null
+      }
+    },
+    "expectedRetryable": true,
+    "reason": "generic upstream failure, transient by nature"
+  },
+  {
+    "name": "service-unavailable",
+    "status": 503,
+    "body": {
+      "error": {
+        "message": "The engine is currently overloaded, please try again later.",
+        "type": "server_error",
+        "param": null,
+        "code": null
+      }
+    },
+    "expectedRetryable": true,
+    "reason": "explicit overload signal, expected to clear on its own"
+  },
+  {
+    "name": "invalid-api-key",
+    "status": 401,
+    "body": {
+      "error": {
+        "message": "Incorrect API key provided.",
+        "type": "invalid_request_error",
+        "param": null,
+        "code": "invalid_api_key"
+      }
+    },
+    "expectedRetryable": false,
+    "reason": "credentials are wrong; retrying sends the same bad key again"
+  },
+  {
+    "name": "bad-request-file-format",
+    "status": 400,
+    "body": {
+      "error": {
+        "message": "Invalid file format. Supported formats: ['flac', 'm4a', 'mp3', 'mp4', 'mpeg', 'mpga', 'oga', 'ogg', 'wav', 'webm']",
+        "type": "invalid_request_error",
+        "param": "file",
+        "code": null
+      }
+    },
+    "expectedRetryable": false,
+    "reason": "the request itself is malformed; retrying sends the same bad file again"
+  }
+]
