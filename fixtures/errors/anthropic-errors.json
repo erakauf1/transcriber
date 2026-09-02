@@ -1,0 +1,93 @@
+[
+  {
+    "name": "rate-limit",
+    "status": 429,
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "rate_limit_error",
+        "message": "Number of request tokens has exceeded your per-minute rate limit."
+      }
+    },
+    "expectedRetryable": true,
+    "reason": "transient throttling — backing off and retrying is the correct response"
+  },
+  {
+    "name": "overloaded",
+    "status": 529,
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "overloaded_error",
+        "message": "Anthropic's API is temporarily overloaded."
+      }
+    },
+    "expectedRetryable": true,
+    "reason": "explicit overload signal, Anthropic's own docs recommend backoff+retry here"
+  },
+  {
+    "name": "api-error",
+    "status": 500,
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "api_error",
+        "message": "An unexpected error has occurred internal to Anthropic's systems."
+      }
+    },
+    "expectedRetryable": true,
+    "reason": "generic upstream failure, transient by nature"
+  },
+  {
+    "name": "authentication-error",
+    "status": 401,
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "authentication_error",
+        "message": "invalid x-api-key"
+      }
+    },
+    "expectedRetryable": false,
+    "reason": "credentials are wrong; retrying sends the same bad key again"
+  },
+  {
+    "name": "permission-error",
+    "status": 403,
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "permission_error",
+        "message": "Your API key does not have permission to use the specified resource."
+      }
+    },
+    "expectedRetryable": false,
+    "reason": "authorization problem, not a transient condition"
+  },
+  {
+    "name": "invalid-request",
+    "status": 400,
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "invalid_request_error",
+        "message": "messages: at least one message is required"
+      }
+    },
+    "expectedRetryable": false,
+    "reason": "the request itself is malformed; retrying sends the same bad body again"
+  },
+  {
+    "name": "request-too-large",
+    "status": 413,
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "request_too_large_error",
+        "message": "Request exceeds the maximum allowed number of bytes."
+      }
+    },
+    "expectedRetryable": false,
+    "reason": "the payload itself is too big; retrying sends the same oversized request again"
+  }
+]

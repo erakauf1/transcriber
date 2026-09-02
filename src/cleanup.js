@@ -1,3 +1,6 @@
+import { withRetry } from './retry.js';
+import { classifyAnthropicError, isNetworkError, readErrorBody } from './api-errors.js';
+
 export const CLEANUP_MODEL = 'claude-sonnet-5';
 
 export class CleanupError extends Error {}
@@ -65,9 +68,20 @@ function buildFewShotMessages(language) {
   return FEW_SHOT_EXAMPLES[language] || FEW_SHOT_EXAMPLES.en;
 }
 
+// A single transient 429 or network blip used to discard the whole recording — the user
+// would have to re-record from scratch. withRetry backs off and tries again a few times
+// before giving up. If every attempt is exhausted (or the failure is terminal), this
+// throws CleanupError and app.js's existing fallback shows the raw transcript instead of
+// losing the recording — see CLEANUP_FAIL in state.js.
 export async function cleanup(text, language, apiKey) {
   if (!apiKey) throw new CleanupError('No Anthropic API key configured');
 
+  return withRetry(() => attemptCleanup(text, language, apiKey), {
+    isRetryable: (err) => err instanceof CleanupError && err.retryable === true,
+  });
+}
+
+async function attemptCleanup(text, language, apiKey) {
   let res;
   try {
     res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -91,14 +105,24 @@ export async function cleanup(text, language, apiKey) {
       signal: AbortSignal.timeout(120000),
     });
   } catch (err) {
-    throw new CleanupError(`Network error: ${err.message}`);
+    const wrapped = new CleanupError(`Network error: ${err.message}`);
+    wrapped.retryable = isNetworkError(err);
+    throw wrapped;
   }
-  if (!res.ok) throw new CleanupError(`Cleanup failed (HTTP ${res.status})`);
+  if (!res.ok) {
+    const body = await readErrorBody(res);
+    const err = new CleanupError(`Cleanup failed (HTTP ${res.status})`);
+    err.status = res.status;
+    err.retryable = classifyAnthropicError(res.status, body);
+    throw err;
+  }
 
   const data = await res.json();
   // content[] is an array of typed blocks (thinking, text, ...) — find the text
   // block rather than assuming it's first, since a thinking block can precede it.
   const out = data.content?.find((b) => b.type === 'text')?.text?.trim();
+  // Empty output is a semantic failure, not a transient one — leave `retryable` unset
+  // (falsy) so withRetry doesn't burn attempts on it.
   if (!out) throw new CleanupError('Cleanup returned empty output');
   return out;
 }
