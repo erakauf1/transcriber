@@ -46,6 +46,12 @@ function keyFor(provider) {
   return getOpenRouterKey();
 }
 
+function hasKeyFor(provider) {
+  if (provider === 'openai') return hasOpenAIKey();
+  if (provider === 'anthropic') return hasAnthropicKey();
+  return hasOpenRouterKey();
+}
+
 function resolveStep(provider, model) {
   return {
     provider,
@@ -136,11 +142,14 @@ function render() {
 
     // Refine panel — only available when cleanup succeeded.
     const canRefine = !cleanupFailed;
+    const refineHasKey = hasKeyFor(getRefineProvider());
     const btnRefine = $('btn-refine');
     btnRefine.hidden = !canRefine;
+    btnRefine.disabled = canRefine && !refineHasKey;
     btnRefine.classList.toggle('active', refineOpen);
+    $('refine-key-hint').hidden = !canRefine || refineHasKey;
 
-    $('refine-panel').hidden = !(canRefine && refineOpen);
+    $('refine-panel').hidden = !(canRefine && refineHasKey && refineOpen);
 
     if (canRefine && refineOpen) {
       const busy = refineLoading || refineApplying;
@@ -440,7 +449,7 @@ $('btn-save-key-openrouter').onclick = () => {
   $('key-status-openrouter').textContent = saved ? 'Key saved ✓' : 'Key cleared';
 };
 
-function wireProviderPicker(step, { providerSelect, providerGetter, providerSetter, modelRow, modelSelect, modelGetter, modelSetter, customInput }) {
+function wireProviderPicker({ providerSelect, providerGetter, providerSetter, modelRow, modelSelect, modelGetter, modelSetter, customInput }) {
   const savedProvider = providerGetter();
   providerSelect.value = savedProvider;
   modelRow.hidden = savedProvider !== 'openrouter';
@@ -468,7 +477,7 @@ function wireProviderPicker(step, { providerSelect, providerGetter, providerSett
   };
 }
 
-wireProviderPicker('cleanup', {
+wireProviderPicker({
   providerSelect: $('provider-cleanup'),
   providerGetter: getCleanupProvider,
   providerSetter: setCleanupProvider,
@@ -479,7 +488,7 @@ wireProviderPicker('cleanup', {
   customInput: $('model-custom-cleanup'),
 });
 
-wireProviderPicker('refine', {
+wireProviderPicker({
   providerSelect: $('provider-refine'),
   providerGetter: getRefineProvider,
   providerSetter: setRefineProvider,
