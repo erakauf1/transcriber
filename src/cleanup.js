@@ -1,4 +1,4 @@
-export const CLEANUP_MODEL = 'claude-sonnet-5';
+import { callChatModel } from './llmClient.js';
 
 export class CleanupError extends Error {}
 
@@ -65,40 +65,20 @@ function buildFewShotMessages(language) {
   return FEW_SHOT_EXAMPLES[language] || FEW_SHOT_EXAMPLES.en;
 }
 
-export async function cleanup(text, language, apiKey) {
-  if (!apiKey) throw new CleanupError('No Anthropic API key configured');
+export async function cleanup(text, language, { provider, model, apiKey }) {
+  if (!apiKey) throw new CleanupError(`No ${provider} API key configured`);
 
-  let res;
   try {
-    res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: CLEANUP_MODEL,
-        max_tokens: 4096,
-        // This is a bounded transformation task, not a reasoning task — disabling
-        // adaptive thinking keeps the full max_tokens budget available for the
-        // output instead of sharing it with thinking.
-        thinking: { type: 'disabled' },
-        system: buildSystemPrompt(language),
-        messages: [...buildFewShotMessages(language), { role: 'user', content: text }],
-      }),
-      signal: AbortSignal.timeout(120000),
+    return await callChatModel({
+      provider,
+      model,
+      apiKey,
+      systemPrompt: buildSystemPrompt(language),
+      messages: [...buildFewShotMessages(language), { role: 'user', content: text }],
+      maxTokens: 4096,
+      timeoutMs: 120000,
     });
   } catch (err) {
-    throw new CleanupError(`Network error: ${err.message}`);
+    throw new CleanupError(err.message.replace(/^Request failed/, 'Cleanup failed').replace(/^Empty response/, 'Cleanup returned empty output'));
   }
-  if (!res.ok) throw new CleanupError(`Cleanup failed (HTTP ${res.status})`);
-
-  const data = await res.json();
-  // content[] is an array of typed blocks (thinking, text, ...) — find the text
-  // block rather than assuming it's first, since a thinking block can precede it.
-  const out = data.content?.find((b) => b.type === 'text')?.text?.trim();
-  if (!out) throw new CleanupError('Cleanup returned empty output');
-  return out;
 }
