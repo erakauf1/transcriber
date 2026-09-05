@@ -7,6 +7,9 @@ import { copyText } from './clipboard.js';
 import {
   getOpenAIKey, setOpenAIKey, hasOpenAIKey,
   getAnthropicKey, setAnthropicKey, hasAnthropicKey,
+  getOpenRouterKey, setOpenRouterKey, hasOpenRouterKey,
+  getCleanupProvider, setCleanupProvider, getCleanupModel, setCleanupModel,
+  getRefineProvider, setRefineProvider, getRefineModel, setRefineModel,
   getNoiseSuppressionEnabled, setNoiseSuppressionEnabled,
 } from './settings.js';
 import { createVAD } from './vad.js';
@@ -32,6 +35,30 @@ let refineApplying = false;
 let refineError = null;
 
 const $ = (id) => document.getElementById(id);
+
+// Model used when a step's provider is switched to 'openai'/'anthropic' directly
+// (as opposed to 'openrouter', where the model comes from settings).
+const DEFAULT_MODEL = { openai: 'gpt-4o', anthropic: 'claude-sonnet-5' };
+
+function hasKeyFor(provider) {
+  if (provider === 'openai') return hasOpenAIKey();
+  if (provider === 'anthropic') return hasAnthropicKey();
+  return hasOpenRouterKey();
+}
+
+function keyFor(provider) {
+  if (provider === 'openai') return getOpenAIKey();
+  if (provider === 'anthropic') return getAnthropicKey();
+  return getOpenRouterKey();
+}
+
+function resolveStep(provider, model) {
+  return {
+    provider,
+    model: provider === 'openrouter' ? model : DEFAULT_MODEL[provider],
+    apiKey: keyFor(provider),
+  };
+}
 
 function dispatch(event) {
   state = reduce(state, event);
@@ -89,6 +116,7 @@ function render() {
     // === false already implies no key is saved.
     $('key-status-openai').textContent = hasOpenAIKey() ? 'Key saved ✓' : '';
     $('key-status-anthropic').textContent = hasAnthropicKey() ? 'Key saved ✓' : '';
+    $('key-status-openrouter').textContent = hasOpenRouterKey() ? 'Key saved ✓' : '';
   }
 
   if (state.phase === 'transcribing' || state.phase === 'cleaning') {
@@ -185,7 +213,11 @@ async function runTranscription() {
 async function runCleanup() {
   try {
     // Undo transliterated work terms in code before the LLM sees the text — see loanwords.js.
-    const text = await cleanup(restoreLoanwords(state.rawTranscript), state.language, getAnthropicKey());
+    const text = await cleanup(
+      restoreLoanwords(state.rawTranscript),
+      state.language,
+      resolveStep(getCleanupProvider(), getCleanupModel())
+    );
     const autoCopied = await copyText(text);
     dispatch({ type: 'CLEANUP_OK', text, autoCopied });
   } catch (err) {
@@ -344,7 +376,7 @@ $('btn-refine').onclick = async () => {
       refineChips = await generateRefinementChips(
         $('result-text').value,
         state.language ?? 'en',
-        getOpenAIKey()
+        resolveStep(getRefineProvider(), getRefineModel())
       );
     } catch (err) {
       refineError = err.message;
@@ -366,7 +398,7 @@ async function handleChipClick(chip) {
       $('result-text').value,
       state.language ?? 'en',
       chip.instruction,
-      getOpenAIKey()
+      resolveStep(getRefineProvider(), getRefineModel())
     );
     // Close the panel and reset chips so next open generates fresh options for the new text.
     refineOpen = false;
@@ -405,6 +437,64 @@ $('btn-save-key-anthropic').onclick = () => {
   render();
   $('key-status-anthropic').textContent = saved ? 'Key saved ✓' : 'Key cleared';
 };
+
+$('btn-save-key-openrouter').onclick = () => {
+  setOpenRouterKey($('api-key-openrouter').value);
+  const saved = hasOpenRouterKey();
+  $('api-key-openrouter').value = '';
+  render();
+  $('key-status-openrouter').textContent = saved ? 'Key saved ✓' : 'Key cleared';
+};
+
+function wireProviderPicker(step, { providerSelect, providerGetter, providerSetter, modelRow, modelSelect, modelGetter, modelSetter, customInput }) {
+  const savedProvider = providerGetter();
+  providerSelect.value = savedProvider;
+  modelRow.hidden = savedProvider !== 'openrouter';
+
+  const savedModel = modelGetter();
+  const isCurated = Array.from(modelSelect.options).some((o) => o.value === savedModel);
+  modelSelect.value = isCurated ? savedModel : 'custom';
+  customInput.hidden = modelSelect.value !== 'custom';
+  customInput.value = isCurated ? '' : savedModel;
+
+  providerSelect.onchange = () => {
+    providerSetter(providerSelect.value);
+    modelRow.hidden = providerSelect.value !== 'openrouter';
+  };
+
+  modelSelect.onchange = () => {
+    customInput.hidden = modelSelect.value !== 'custom';
+    if (modelSelect.value !== 'custom') modelSetter(modelSelect.value);
+  };
+
+  customInput.oninput = () => {
+    if (modelSelect.value === 'custom' && customInput.value.trim()) {
+      modelSetter(customInput.value.trim());
+    }
+  };
+}
+
+wireProviderPicker('cleanup', {
+  providerSelect: $('provider-cleanup'),
+  providerGetter: getCleanupProvider,
+  providerSetter: setCleanupProvider,
+  modelRow: $('model-row-cleanup'),
+  modelSelect: $('model-cleanup'),
+  modelGetter: getCleanupModel,
+  modelSetter: setCleanupModel,
+  customInput: $('model-custom-cleanup'),
+});
+
+wireProviderPicker('refine', {
+  providerSelect: $('provider-refine'),
+  providerGetter: getRefineProvider,
+  providerSetter: setRefineProvider,
+  modelRow: $('model-row-refine'),
+  modelSelect: $('model-refine'),
+  modelGetter: getRefineModel,
+  modelSetter: setRefineModel,
+  customInput: $('model-custom-refine'),
+});
 
 // Noise suppression toggle
 (async () => {
