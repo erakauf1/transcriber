@@ -64,6 +64,7 @@ function writeSetting(storageKey, value) {
   try {
     localStorage.setItem(storageKey, value);
   } catch {
+    // Storage blocked — no-op.
   }
 }
 
