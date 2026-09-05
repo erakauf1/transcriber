@@ -446,6 +446,17 @@ body {
 }
 .field input::placeholder { color: var(--color-neutral-600); }
 .field input:focus-visible { border-color: var(--color-accent); outline: none; }
+.field select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-neutral-700);
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+  font: 400 13px/1.4 var(--font-body);
+  margin-bottom: 12px;
+}
+.field select:focus-visible { border-color: var(--color-accent); outline: none; }
 
 .toggle-row {
   display: flex;

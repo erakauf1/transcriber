@@ -137,6 +137,48 @@
           <p id="key-status-anthropic" class="hint hint-tight"></p>
         </div>
         <div class="field">
+          <label for="api-key-openrouter">OpenRouter API key</label>
+          <input id="api-key-openrouter" type="password" autocomplete="off" placeholder="sk-or-••••••••••••••" />
+          <button id="btn-save-key-openrouter" class="btn btn-primary btn-block" type="button">Save key</button>
+          <p id="key-status-openrouter" class="hint hint-tight"></p>
+        </div>
+        <div class="field">
+          <label for="provider-cleanup">Cleanup provider</label>
+          <select id="provider-cleanup">
+            <option value="anthropic">Anthropic</option>
+            <option value="openai">OpenAI</option>
+            <option value="openrouter">OpenRouter</option>
+          </select>
+          <div id="model-row-cleanup" hidden>
+            <select id="model-cleanup">
+              <option value="openrouter/auto">Auto (let OpenRouter choose)</option>
+              <option value="meta-llama/llama-3.3-70b-instruct:free">Llama 3.3 70B (free)</option>
+              <option value="deepseek/deepseek-chat-v3.1:free">DeepSeek Chat v3.1 (free)</option>
+              <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash</option>
+              <option value="custom">Custom…</option>
+            </select>
+            <input id="model-custom-cleanup" type="text" autocomplete="off" placeholder="e.g. mistralai/mistral-small" hidden />
+          </div>
+        </div>
+        <div class="field">
+          <label for="provider-refine">Refine provider</label>
+          <select id="provider-refine">
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="openrouter">OpenRouter</option>
+          </select>
+          <div id="model-row-refine" hidden>
+            <select id="model-refine">
+              <option value="openrouter/auto">Auto (let OpenRouter choose)</option>
+              <option value="meta-llama/llama-3.3-70b-instruct:free">Llama 3.3 70B (free)</option>
+              <option value="deepseek/deepseek-chat-v3.1:free">DeepSeek Chat v3.1 (free)</option>
+              <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash</option>
+              <option value="custom">Custom…</option>
+            </select>
+            <input id="model-custom-refine" type="text" autocomplete="off" placeholder="e.g. mistralai/mistral-small" hidden />
+          </div>
+        </div>
+        <div class="field">
           <label for="ns-toggle">Noise suppression</label>
           <div class="toggle-row">
             <input id="ns-toggle" type="checkbox" role="switch" />
@@ -144,10 +186,10 @@
           </div>
         </div>
         <p class="sheet-note">
-          Voice Note records audio and transcribes it with gpt&#8209;4o&#8209;transcribe (OpenAI), then
-          cleans up filler words with Claude Sonnet 5 (Anthropic). Everything runs on your own API
-          keys — nothing is stored except in your browser. The Anthropic key is optional: without
-          it you'll get the raw transcript instead of a cleaned-up one.
+          Voice Note records audio and transcribes it with gpt&#8209;4o&#8209;transcribe (OpenAI). Cleanup
+          and Refine can each independently use OpenAI, Anthropic, or OpenRouter (including free/low-cost
+          models) — pick per step above. Everything runs on your own API keys — nothing is stored except
+          in your browser.
         </p>
       </div>
     </section>
