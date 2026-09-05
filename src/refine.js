@@ -16,6 +16,7 @@ export async function generateRefinementChips(text, language, { provider, model,
       temperature: 0.7,
       jsonMode: true,
       timeoutMs: 30000,
+      maxTokens: 1024,
       systemPrompt: [
         `You suggest specific, useful one-tap refinement actions for a cleaned-up voice note message.`,
         `The message is in ${lang}. Suggest 3–4 short actions that would genuinely improve THIS specific message.`,
@@ -55,6 +56,7 @@ export async function applyRefinement(text, language, instruction, { provider, m
       apiKey,
       temperature: 0,
       timeoutMs: 60000,
+      maxTokens: 4096,
       systemPrompt: [
         `You refine voice-note messages by applying a specific transformation.`,
         `The message is in ${lang}. Never translate anything — preserve the language throughout.`,
