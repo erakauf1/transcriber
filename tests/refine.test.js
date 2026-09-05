@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { generateRefinementChips, applyRefinement, RefineError, REFINE_MODEL } from '../src/refine.js';
+import { generateRefinementChips, applyRefinement, RefineError } from '../src/refine.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -15,7 +15,7 @@ describe('generateRefinementChips', () => {
     ];
     vi.stubGlobal('fetch', vi.fn(async () => chipResponse(chips)));
 
-    const result = await generateRefinementChips('Some voice note text', 'en', 'sk-test');
+    const result = await generateRefinementChips('Some voice note text', 'en', { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test' });
     expect(result).toEqual(chips);
   });
 
@@ -26,7 +26,7 @@ describe('generateRefinementChips', () => {
     }));
     vi.stubGlobal('fetch', vi.fn(async () => chipResponse(chips)));
 
-    const result = await generateRefinementChips('text', 'en', 'sk-test');
+    const result = await generateRefinementChips('text', 'en', { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test' });
     expect(result).toHaveLength(4);
   });
 
@@ -38,7 +38,7 @@ describe('generateRefinementChips', () => {
     ];
     vi.stubGlobal('fetch', vi.fn(async () => chipResponse(chips)));
 
-    const result = await generateRefinementChips('text', 'en', 'sk-test');
+    const result = await generateRefinementChips('text', 'en', { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test' });
     expect(result).toHaveLength(1);
     expect(result[0].label).toBe('Good chip');
   });
@@ -49,13 +49,13 @@ describe('generateRefinementChips', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    await generateRefinementChips('text', 'he', 'sk-test');
+    await generateRefinementChips('text', 'he', { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test' });
 
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toBe('https://api.openai.com/v1/chat/completions');
     expect(opts.headers.Authorization).toBe('Bearer sk-test');
     const body = JSON.parse(opts.body);
-    expect(body.model).toBe(REFINE_MODEL);
+    expect(body.model).toBe('gpt-4o');
     expect(body.response_format).toEqual({ type: 'json_object' });
     expect(body.messages[0].role).toBe('system');
     expect(body.messages[0].content).toContain('Hebrew');
@@ -68,30 +68,38 @@ describe('generateRefinementChips', () => {
       okResponse({ choices: [{ message: { content: JSON.stringify(chips) } }] })
     ));
 
-    const result = await generateRefinementChips('text', 'en', 'sk-test');
+    const result = await generateRefinementChips('text', 'en', { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test' });
     expect(result).toHaveLength(1);
   });
 
   it('throws RefineError on HTTP error', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 429 })));
-    await expect(generateRefinementChips('x', 'en', 'sk-test')).rejects.toBeInstanceOf(RefineError);
+    await expect(generateRefinementChips('x', 'en', { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test' })).rejects.toBeInstanceOf(RefineError);
   });
 
   it('throws RefineError on empty response', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => okResponse({ choices: [] })));
-    await expect(generateRefinementChips('x', 'en', 'sk-test')).rejects.toBeInstanceOf(RefineError);
+    await expect(generateRefinementChips('x', 'en', { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test' })).rejects.toBeInstanceOf(RefineError);
   });
 
   it('throws RefineError on malformed JSON', async () => {
     vi.stubGlobal('fetch', vi.fn(async () =>
       okResponse({ choices: [{ message: { content: 'not json at all' } }] })
     ));
-    await expect(generateRefinementChips('x', 'en', 'sk-test')).rejects.toBeInstanceOf(RefineError);
+    await expect(generateRefinementChips('x', 'en', { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test' })).rejects.toBeInstanceOf(RefineError);
   });
 
   it('throws RefineError on network failure', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
-    await expect(generateRefinementChips('x', 'en', 'sk-test')).rejects.toBeInstanceOf(RefineError);
+    await expect(generateRefinementChips('x', 'en', { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test' })).rejects.toBeInstanceOf(RefineError);
+  });
+
+  it('routes to OpenRouter when provider is openrouter', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => chipResponse([{ label: 'A', instruction: 'B' }])));
+    const result = await generateRefinementChips('text', 'en', {
+      provider: 'openrouter', model: 'openrouter/auto', apiKey: 'sk-or-test',
+    });
+    expect(result).toEqual([{ label: 'A', instruction: 'B' }]);
   });
 });
 
@@ -101,7 +109,7 @@ describe('applyRefinement', () => {
       okResponse({ choices: [{ message: { content: '  refined output  ' } }] })
     ));
 
-    const out = await applyRefinement('original', 'en', 'Make shorter', 'sk-test');
+    const out = await applyRefinement('original', 'en', 'Make shorter', { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test' });
     expect(out).toBe('refined output');
   });
 
@@ -111,12 +119,12 @@ describe('applyRefinement', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    await applyRefinement('my text', 'he', 'Condense this', 'sk-test');
+    await applyRefinement('my text', 'he', 'Condense this', { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test' });
 
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toBe('https://api.openai.com/v1/chat/completions');
     const body = JSON.parse(opts.body);
-    expect(body.model).toBe(REFINE_MODEL);
+    expect(body.model).toBe('gpt-4o');
     expect(body.temperature).toBe(0);
     expect(body.messages[0].role).toBe('system');
     expect(body.messages[0].content).toContain('Hebrew');
@@ -127,16 +135,24 @@ describe('applyRefinement', () => {
 
   it('throws RefineError on HTTP error', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })));
-    await expect(applyRefinement('x', 'en', 'instruction', 'sk-test')).rejects.toBeInstanceOf(RefineError);
+    await expect(applyRefinement('x', 'en', 'instruction', { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test' })).rejects.toBeInstanceOf(RefineError);
   });
 
   it('throws RefineError on empty completion', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => okResponse({ choices: [] })));
-    await expect(applyRefinement('x', 'en', 'instruction', 'sk-test')).rejects.toBeInstanceOf(RefineError);
+    await expect(applyRefinement('x', 'en', 'instruction', { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test' })).rejects.toBeInstanceOf(RefineError);
   });
 
   it('throws RefineError on network failure', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('timeout'); }));
-    await expect(applyRefinement('x', 'en', 'instruction', 'sk-test')).rejects.toBeInstanceOf(RefineError);
+    await expect(applyRefinement('x', 'en', 'instruction', { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-test' })).rejects.toBeInstanceOf(RefineError);
+  });
+
+  it('routes to OpenRouter when provider is openrouter', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => okResponse({ choices: [{ message: { content: 'refined' } }] })));
+    const out = await applyRefinement('x', 'en', 'instr', {
+      provider: 'openrouter', model: 'openrouter/auto', apiKey: 'sk-or-test',
+    });
+    expect(out).toBe('refined');
   });
 });
