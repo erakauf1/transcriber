@@ -40,12 +40,6 @@ const $ = (id) => document.getElementById(id);
 // (as opposed to 'openrouter', where the model comes from settings).
 const DEFAULT_MODEL = { openai: 'gpt-4o', anthropic: 'claude-sonnet-5' };
 
-function hasKeyFor(provider) {
-  if (provider === 'openai') return hasOpenAIKey();
-  if (provider === 'anthropic') return hasAnthropicKey();
-  return hasOpenRouterKey();
-}
-
 function keyFor(provider) {
   if (provider === 'openai') return getOpenAIKey();
   if (provider === 'anthropic') return getAnthropicKey();
