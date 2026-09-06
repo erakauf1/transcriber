@@ -27,7 +27,11 @@ async function callAnthropic({ model, apiKey, systemPrompt, messages, maxTokens,
   } catch (err) {
     throw new Error(`Network error: ${err.message}`);
   }
-  if (!res.ok) throw new Error(`Request failed (HTTP ${res.status})`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const detail = body?.error?.message;
+    throw new Error(detail ? `Request failed: ${detail}` : `Request failed (HTTP ${res.status})`);
+  }
   const data = await res.json();
   const out = data.content?.find((b) => b.type === 'text')?.text?.trim();
   if (!out) throw new Error('Empty response');
@@ -65,7 +69,11 @@ async function callOpenAICompatible({
   } catch (err) {
     throw new Error(`Network error: ${err.message}`);
   }
-  if (!res.ok) throw new Error(`Request failed (HTTP ${res.status})`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const detail = body?.error?.message;
+    throw new Error(detail ? `Request failed: ${detail}` : `Request failed (HTTP ${res.status})`);
+  }
   const data = await res.json();
   const out = data.choices?.[0]?.message?.content?.trim();
   if (!out) throw new Error('Empty response');
