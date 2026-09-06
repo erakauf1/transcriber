@@ -1,5 +1,6 @@
 const OPENAI_STORAGE_KEY = 'openai_api_key';
 const ANTHROPIC_STORAGE_KEY = 'anthropic_api_key';
+const OPENROUTER_STORAGE_KEY = 'openrouter_api_key';
 
 function readKey(storageKey) {
   try {
@@ -39,6 +40,60 @@ export function setAnthropicKey(key) {
 }
 export function hasAnthropicKey() {
   return getAnthropicKey() !== null;
+}
+
+export function getOpenRouterKey() {
+  return readKey(OPENROUTER_STORAGE_KEY);
+}
+export function setOpenRouterKey(key) {
+  writeKey(OPENROUTER_STORAGE_KEY, key);
+}
+export function hasOpenRouterKey() {
+  return getOpenRouterKey() !== null;
+}
+
+function readSetting(storageKey, fallback) {
+  try {
+    return localStorage.getItem(storageKey) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeSetting(storageKey, value) {
+  try {
+    localStorage.setItem(storageKey, value);
+  } catch {
+    // Storage blocked — no-op.
+  }
+}
+
+export function getCleanupProvider() {
+  return readSetting('cleanup_provider', 'anthropic');
+}
+export function setCleanupProvider(provider) {
+  writeSetting('cleanup_provider', provider);
+}
+
+export function getRefineProvider() {
+  return readSetting('refine_provider', 'openai');
+}
+export function setRefineProvider(provider) {
+  writeSetting('refine_provider', provider);
+}
+
+export function getCleanupModel() {
+  return readSetting('cleanup_model', 'openrouter/auto');
+}
+export function setCleanupModel(model) {
+  writeSetting('cleanup_model', model);
+}
+
+export function getRefineModel() {
+  return readSetting('refine_model', 'openrouter/auto');
+}
+export function setRefineModel(model) {
+  writeSetting('refine_model', model);
 }
 
 const NS_KEY = 'noiseSuppressionEnabled';
