@@ -18,6 +18,7 @@ import { createVAD } from './vad.js';
 import { checkNoiseSuppressionSupport } from './audio-pipeline.js';
 import { initialState, reduce } from './state.js';
 import { generateRefinementChips, applyRefinement } from './refine.js';
+import { modelLabel, formatCost } from './pricing.js';
 
 let state = initialState;
 let recorder = null;
@@ -35,6 +36,35 @@ let refineChips = null;   // null = not yet fetched; Array = fetched (may be emp
 let refineLoading = false;
 let refineApplying = false;
 let refineError = null;
+
+// Estimated LLM spend for the note on screen, per step: { usd, tokens, unknown, model }.
+// Reset per recording; a cleanup retry or extra refine adds to it.
+let noteCost = { cleanup: null, refine: null };
+
+function trackUsage(step) {
+  return (u) => {
+    const prev = noteCost[step] ?? { usd: 0, tokens: 0, unknown: false };
+    noteCost[step] = {
+      usd: prev.usd + (u.costUsd ?? 0),
+      tokens: prev.tokens + u.inputTokens + u.outputTokens,
+      unknown: prev.unknown || u.costUsd == null,
+      model: u.model,
+    };
+  };
+}
+
+function costText() {
+  const { cleanup: c, refine: r } = noteCost;
+  if (!c && !r) return '';
+  const steps = [c, r].filter(Boolean);
+  if (steps.some((s) => s.unknown)) {
+    const tokens = steps.reduce((n, s) => n + s.tokens, 0).toLocaleString();
+    return `Est. cost: unavailable for ${modelLabel(steps.find((s) => s.unknown).model)} (${tokens} tokens)`;
+  }
+  if (!r) return `Est. cost ≈ ${formatCost(c.usd)} · ${modelLabel(c.model)}`;
+  if (!c) return `Est. cost ≈ ${formatCost(r.usd)} · refine`;
+  return `Est. cost ≈ ${formatCost(c.usd + r.usd)} · cleanup ${formatCost(c.usd)} + refine ${formatCost(r.usd)}`;
+}
 
 const $ = (id) => document.getElementById(id);
 
@@ -138,6 +168,9 @@ function render() {
     $('cleaned-badge').hidden = cleanupFailed;
     $('result-text').value = state.cleanedText ?? state.rawTranscript ?? '';
     $('raw-text').textContent = state.rawTranscript ?? '';
+    const cost = costText();
+    $('cost-line').hidden = !cost;
+    $('cost-line').textContent = cost;
     $('raw-details').hidden = cleanupFailed; // raw already shown as the main text
     if (state.autoCopied && !autoCopyAnnounced) {
       autoCopyAnnounced = true;
@@ -208,6 +241,7 @@ function showCopied(message) {
 }
 
 async function runTranscription() {
+  noteCost = { cleanup: null, refine: null };
   try {
     const text = await transcribe(state.audioBlob, getOpenAIKey());
     dispatch({ type: 'TRANSCRIBE_OK', text, language: detectLanguage(text) });
@@ -223,7 +257,7 @@ async function runCleanup() {
     const text = await cleanup(
       restoreLoanwords(state.rawTranscript),
       state.language,
-      resolveStep(getCleanupProvider(), getCleanupModel(), getCleanupAnthropicModel())
+      { ...resolveStep(getCleanupProvider(), getCleanupModel(), getCleanupAnthropicModel()), onUsage: trackUsage('cleanup') }
     );
     const autoCopied = await copyText(text);
     dispatch({ type: 'CLEANUP_OK', text, autoCopied });
@@ -383,7 +417,7 @@ $('btn-refine').onclick = async () => {
       refineChips = await generateRefinementChips(
         $('result-text').value,
         state.language ?? 'en',
-        resolveStep(getRefineProvider(), getRefineModel(), getRefineAnthropicModel())
+        { ...resolveStep(getRefineProvider(), getRefineModel(), getRefineAnthropicModel()), onUsage: trackUsage('refine') }
       );
     } catch (err) {
       refineError = err.message;
@@ -405,7 +439,7 @@ async function handleChipClick(chip) {
       $('result-text').value,
       state.language ?? 'en',
       chip.instruction,
-      resolveStep(getRefineProvider(), getRefineModel(), getRefineAnthropicModel())
+      { ...resolveStep(getRefineProvider(), getRefineModel(), getRefineAnthropicModel()), onUsage: trackUsage('refine') }
     );
     // Close the panel and reset chips so next open generates fresh options for the new text.
     refineOpen = false;
