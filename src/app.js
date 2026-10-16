@@ -9,6 +9,8 @@ import {
   getAnthropicKey, setAnthropicKey, hasAnthropicKey,
   getOpenRouterKey, setOpenRouterKey, hasOpenRouterKey,
   getCleanupProvider, setCleanupProvider, getCleanupModel, setCleanupModel,
+  getCleanupAnthropicModel, setCleanupAnthropicModel,
+  getRefineAnthropicModel, setRefineAnthropicModel,
   getRefineProvider, setRefineProvider, getRefineModel, setRefineModel,
   getNoiseSuppressionEnabled, setNoiseSuppressionEnabled,
 } from './settings.js';
@@ -52,10 +54,12 @@ function hasKeyFor(provider) {
   return hasOpenRouterKey();
 }
 
-function resolveStep(provider, model) {
+function resolveStep(provider, model, anthropicModel = DEFAULT_MODEL.anthropic) {
   return {
     provider,
-    model: provider === 'openrouter' ? model : DEFAULT_MODEL[provider],
+    model: provider === 'openrouter' ? model
+      : provider === 'anthropic' ? anthropicModel
+      : DEFAULT_MODEL[provider],
     apiKey: keyFor(provider),
   };
 }
@@ -219,7 +223,7 @@ async function runCleanup() {
     const text = await cleanup(
       restoreLoanwords(state.rawTranscript),
       state.language,
-      resolveStep(getCleanupProvider(), getCleanupModel())
+      resolveStep(getCleanupProvider(), getCleanupModel(), getCleanupAnthropicModel())
     );
     const autoCopied = await copyText(text);
     dispatch({ type: 'CLEANUP_OK', text, autoCopied });
@@ -379,7 +383,7 @@ $('btn-refine').onclick = async () => {
       refineChips = await generateRefinementChips(
         $('result-text').value,
         state.language ?? 'en',
-        resolveStep(getRefineProvider(), getRefineModel())
+        resolveStep(getRefineProvider(), getRefineModel(), getRefineAnthropicModel())
       );
     } catch (err) {
       refineError = err.message;
@@ -401,7 +405,7 @@ async function handleChipClick(chip) {
       $('result-text').value,
       state.language ?? 'en',
       chip.instruction,
-      resolveStep(getRefineProvider(), getRefineModel())
+      resolveStep(getRefineProvider(), getRefineModel(), getRefineAnthropicModel())
     );
     // Close the panel and reset chips so next open generates fresh options for the new text.
     refineOpen = false;
@@ -449,10 +453,22 @@ $('btn-save-key-openrouter').onclick = () => {
   $('key-status-openrouter').textContent = saved ? 'Key saved ✓' : 'Key cleared';
 };
 
-function wireProviderPicker({ providerSelect, providerGetter, providerSetter, modelRow, modelSelect, modelGetter, modelSetter, customInput }) {
+function wireProviderPicker({ providerSelect, providerGetter, providerSetter, modelRow, modelSelect, modelGetter, modelSetter, customInput, anthropic }) {
   const savedProvider = providerGetter();
   providerSelect.value = savedProvider;
   modelRow.hidden = savedProvider !== 'openrouter';
+
+  if (anthropic) {
+    anthropic.row.hidden = savedProvider !== 'anthropic';
+    anthropic.select.value = anthropic.getter();
+    // A stored ID no longer in the list falls back to the first option, and
+    // the fallback is persisted so requests don't keep sending the stale ID.
+    if (!anthropic.select.value) {
+      anthropic.select.selectedIndex = 0;
+      anthropic.setter(anthropic.select.value);
+    }
+    anthropic.select.onchange = () => anthropic.setter(anthropic.select.value);
+  }
 
   const savedModel = modelGetter();
   const isCurated = Array.from(modelSelect.options).some((o) => o.value === savedModel);
@@ -463,6 +479,7 @@ function wireProviderPicker({ providerSelect, providerGetter, providerSetter, mo
   providerSelect.onchange = () => {
     providerSetter(providerSelect.value);
     modelRow.hidden = providerSelect.value !== 'openrouter';
+    if (anthropic) anthropic.row.hidden = providerSelect.value !== 'anthropic';
   };
 
   modelSelect.onchange = () => {
@@ -486,6 +503,12 @@ wireProviderPicker({
   modelGetter: getCleanupModel,
   modelSetter: setCleanupModel,
   customInput: $('model-custom-cleanup'),
+  anthropic: {
+    row: $('anthropic-model-row-cleanup'),
+    select: $('anthropic-model-cleanup'),
+    getter: getCleanupAnthropicModel,
+    setter: setCleanupAnthropicModel,
+  },
 });
 
 wireProviderPicker({
@@ -497,6 +520,12 @@ wireProviderPicker({
   modelGetter: getRefineModel,
   modelSetter: setRefineModel,
   customInput: $('model-custom-refine'),
+  anthropic: {
+    row: $('anthropic-model-row-refine'),
+    select: $('anthropic-model-refine'),
+    getter: getRefineAnthropicModel,
+    setter: setRefineAnthropicModel,
+  },
 });
 
 // Noise suppression toggle

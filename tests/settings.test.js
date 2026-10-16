@@ -8,6 +8,8 @@ import {
   getRefineProvider, setRefineProvider,
   getCleanupModel, setCleanupModel,
   getRefineModel, setRefineModel,
+  getCleanupAnthropicModel, setCleanupAnthropicModel,
+  getRefineAnthropicModel, setRefineAnthropicModel,
 } from '../src/settings.js';
 
 describe('OpenAI key storage', () => {
@@ -140,5 +142,32 @@ describe('cleanup/refine model settings', () => {
     setRefineModel('meta-llama/llama-3.3-70b-instruct:free');
     expect(getCleanupModel()).toBe('deepseek/deepseek-chat-v3.1:free');
     expect(getRefineModel()).toBe('meta-llama/llama-3.3-70b-instruct:free');
+  });
+});
+
+describe('Cleanup Anthropic model', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('defaults to claude-sonnet-5', () => {
+    expect(getCleanupAnthropicModel()).toBe('claude-sonnet-5');
+  });
+
+  it('persists the chosen model', () => {
+    setCleanupAnthropicModel('claude-haiku-5-5');
+    expect(getCleanupAnthropicModel()).toBe('claude-haiku-5-5');
+  });
+});
+
+describe('Refine Anthropic model', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('defaults to claude-sonnet-5', () => {
+    expect(getRefineAnthropicModel()).toBe('claude-sonnet-5');
+  });
+
+  it('persists independently of the cleanup model', () => {
+    setRefineAnthropicModel('claude-opus-5-5');
+    expect(getRefineAnthropicModel()).toBe('claude-opus-5-5');
+    expect(getCleanupAnthropicModel()).toBe('claude-sonnet-5');
   });
 });

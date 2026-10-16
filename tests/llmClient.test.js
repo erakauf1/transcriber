@@ -36,6 +36,24 @@ describe('callChatModel — anthropic', () => {
     expect(body.messages).toEqual([{ role: 'user', content: 'hello' }]);
   });
 
+  it.each([
+    ['claude-sonnet-5', { thinking: { type: 'disabled' } }, 4096],
+    ['claude-haiku-5-5', { thinking: { type: 'disabled' } }, 4096],
+    ['claude-sonnet-5-5', { thinking: { type: 'between_tools' } }, 4096],
+    ['claude-opus-5-5', { output_config: { effort: 'low' } }, 16000],
+  ])('sends the thinking settings %s accepts', async (model, expected, maxTokens) => {
+    const fetchMock = vi.fn(async () => okResponse({ content: [{ type: 'text', text: 'ok' }] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await callChatModel({
+      provider: 'anthropic', model, apiKey: 'k',
+      systemPrompt: 's', messages: [{ role: 'user', content: 'x' }], maxTokens: 4096,
+    });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body).toMatchObject(expected);
+    expect(body.max_tokens).toBe(maxTokens);
+    if (!expected.thinking) expect(body.thinking).toBeUndefined();
+  });
+
   it('finds the text block even when a thinking block precedes it', async () => {
     vi.stubGlobal('fetch', vi.fn(async () =>
       okResponse({ content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: 'ok' }] })
@@ -53,6 +71,16 @@ describe('callChatModel — anthropic', () => {
       provider: 'anthropic', model: 'm', apiKey: 'k', systemPrompt: 's',
       messages: [{ role: 'user', content: 'x' }], maxTokens: 100,
     })).rejects.toThrow();
+  });
+
+  it('throws a clear error when the model refuses', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      okResponse({ stop_reason: 'refusal', content: [] })
+    ));
+    await expect(callChatModel({
+      provider: 'anthropic', model: 'claude-sonnet-5-5', apiKey: 'k', systemPrompt: 's',
+      messages: [{ role: 'user', content: 'x' }], maxTokens: 100,
+    })).rejects.toThrow(/declined/);
   });
 
   it('throws on empty content', async () => {
