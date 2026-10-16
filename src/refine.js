@@ -4,7 +4,7 @@ export class RefineError extends Error {}
 
 const LANGUAGE_NAMES = { he: 'Hebrew', en: 'English' };
 
-export async function generateRefinementChips(text, language, { provider, model, apiKey }) {
+export async function generateRefinementChips(text, language, { provider, model, apiKey, onUsage }) {
   const lang = LANGUAGE_NAMES[language] || 'English';
 
   let content;
@@ -13,6 +13,7 @@ export async function generateRefinementChips(text, language, { provider, model,
       provider,
       model,
       apiKey,
+      onUsage,
       temperature: 0.7,
       jsonMode: true,
       timeoutMs: 30000,
@@ -46,7 +47,7 @@ export async function generateRefinementChips(text, language, { provider, model,
     .map(({ label, instruction }) => ({ label: String(label).trim(), instruction: String(instruction).trim() }));
 }
 
-export async function applyRefinement(text, language, instruction, { provider, model, apiKey }) {
+export async function applyRefinement(text, language, instruction, { provider, model, apiKey, onUsage }) {
   const lang = LANGUAGE_NAMES[language] || 'English';
 
   try {
@@ -54,6 +55,7 @@ export async function applyRefinement(text, language, instruction, { provider, m
       provider,
       model,
       apiKey,
+      onUsage,
       temperature: 0,
       timeoutMs: 60000,
       maxTokens: 4096,

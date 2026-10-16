@@ -73,6 +73,21 @@ describe('callChatModel — anthropic', () => {
     })).rejects.toThrow();
   });
 
+  it('reports token usage and estimated cost, even for a refusal', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => okResponse({
+      stop_reason: 'refusal', content: [], usage: { input_tokens: 1000, output_tokens: 500 },
+    })));
+    const onUsage = vi.fn();
+    await expect(callChatModel({
+      provider: 'anthropic', model: 'claude-opus-5-5', apiKey: 'k', systemPrompt: 's',
+      messages: [{ role: 'user', content: 'x' }], maxTokens: 100, onUsage,
+    })).rejects.toThrow();
+    expect(onUsage).toHaveBeenCalledWith({
+      provider: 'anthropic', model: 'claude-opus-5-5',
+      inputTokens: 1000, outputTokens: 500, costUsd: expect.closeTo(0.014, 10),
+    });
+  });
+
   it('throws a clear error when the model refuses', async () => {
     vi.stubGlobal('fetch', vi.fn(async () =>
       okResponse({ stop_reason: 'refusal', content: [] })
@@ -188,5 +203,22 @@ describe('callChatModel — unknown provider', () => {
       provider: 'bogus', model: 'm', apiKey: 'k', systemPrompt: 's', messages: [],
     })).rejects.toThrow('Unknown provider: bogus');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('callChatModel — usage reporting (OpenAI-compatible)', () => {
+  it('uses the cost OpenRouter reports', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => okResponse({
+      choices: [{ message: { content: 'ok' } }],
+      usage: { prompt_tokens: 200, completion_tokens: 50, cost: 0.0003 },
+    })));
+    const onUsage = vi.fn();
+    await callChatModel({
+      provider: 'openrouter', model: 'openrouter/auto', apiKey: 'k', systemPrompt: 's',
+      messages: [{ role: 'user', content: 'x' }], onUsage,
+    });
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
+      inputTokens: 200, outputTokens: 50, costUsd: 0.0003,
+    }));
   });
 });

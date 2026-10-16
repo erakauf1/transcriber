@@ -1,3 +1,5 @@
+import { estimateCost } from './pricing.js';
+
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
@@ -18,7 +20,17 @@ function anthropicThinkingParams(model, maxTokens) {
   return { thinking: { type: 'disabled' } };
 }
 
-async function callAnthropic({ model, apiKey, systemPrompt, messages, maxTokens, timeoutMs }) {
+// Reports token usage and estimated cost of a completed request. Called even
+// when the reply is then rejected (refusal, empty), since it was still billed.
+function reportUsage(onUsage, { provider, model, inputTokens = 0, outputTokens = 0, reportedCost }) {
+  if (!onUsage) return;
+  onUsage({
+    provider, model, inputTokens, outputTokens,
+    costUsd: estimateCost({ model, inputTokens, outputTokens, reportedCost }),
+  });
+}
+
+async function callAnthropic({ model, apiKey, systemPrompt, messages, maxTokens, timeoutMs, onUsage }) {
   let res;
   try {
     res = await fetch(ANTHROPIC_URL, {
@@ -47,6 +59,10 @@ async function callAnthropic({ model, apiKey, systemPrompt, messages, maxTokens,
     throw new Error(detail ? `Request failed: ${detail}` : `Request failed (HTTP ${res.status})`);
   }
   const data = await res.json();
+  reportUsage(onUsage, {
+    provider: 'anthropic', model,
+    inputTokens: data.usage?.input_tokens, outputTokens: data.usage?.output_tokens,
+  });
   if (data.stop_reason === 'refusal') {
     throw new Error('The model declined this request — try again or pick another model');
   }
@@ -56,7 +72,7 @@ async function callAnthropic({ model, apiKey, systemPrompt, messages, maxTokens,
 }
 
 async function callOpenAICompatible({
-  provider, model, apiKey, systemPrompt, messages, temperature, jsonMode, timeoutMs,
+  provider, model, apiKey, systemPrompt, messages, temperature, jsonMode, timeoutMs, onUsage,
 }) {
   const url = provider === 'openrouter' ? OPENROUTER_URL : OPENAI_URL;
   const headers = {
@@ -92,6 +108,11 @@ async function callOpenAICompatible({
     throw new Error(detail ? `Request failed: ${detail}` : `Request failed (HTTP ${res.status})`);
   }
   const data = await res.json();
+  reportUsage(onUsage, {
+    provider, model,
+    inputTokens: data.usage?.prompt_tokens, outputTokens: data.usage?.completion_tokens,
+    reportedCost: data.usage?.cost,
+  });
   const out = data.choices?.[0]?.message?.content?.trim();
   if (!out) throw new Error('Empty response');
   return out;
@@ -99,13 +120,13 @@ async function callOpenAICompatible({
 
 export async function callChatModel({
   provider, model, apiKey, systemPrompt, messages,
-  temperature, maxTokens, jsonMode = false, timeoutMs = 60000,
+  temperature, maxTokens, jsonMode = false, timeoutMs = 60000, onUsage,
 }) {
   if (provider === 'anthropic') {
-    return callAnthropic({ model, apiKey, systemPrompt, messages, maxTokens, timeoutMs });
+    return callAnthropic({ model, apiKey, systemPrompt, messages, maxTokens, timeoutMs, onUsage });
   }
   if (provider === 'openai' || provider === 'openrouter') {
-    return callOpenAICompatible({ provider, model, apiKey, systemPrompt, messages, temperature, jsonMode, timeoutMs });
+    return callOpenAICompatible({ provider, model, apiKey, systemPrompt, messages, temperature, jsonMode, timeoutMs, onUsage });
   }
   throw new Error(`Unknown provider: ${provider}`);
 }

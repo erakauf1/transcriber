@@ -72,7 +72,7 @@ function buildFewShotMessages(language) {
   return FEW_SHOT_EXAMPLES[language] || FEW_SHOT_EXAMPLES.en;
 }
 
-export async function cleanup(text, language, { provider, model, apiKey }) {
+export async function cleanup(text, language, { provider, model, apiKey, onUsage }) {
   if (!apiKey) throw new CleanupError(`No ${provider} API key configured`);
 
   try {
@@ -84,6 +84,7 @@ export async function cleanup(text, language, { provider, model, apiKey }) {
       messages: [...buildFewShotMessages(language), { role: 'user', content: text }],
       maxTokens: 4096,
       timeoutMs: 120000,
+      onUsage,
     });
   } catch (err) {
     throw new CleanupError(err.message.replace(/^Request failed/, 'Cleanup failed').replace(/^Empty response/, 'Cleanup returned empty output'));
