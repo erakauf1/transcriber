@@ -96,6 +96,15 @@ export function setRefineModel(model) {
   writeSetting('refine_model', model);
 }
 
+export const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-5';
+
+export function getCleanupAnthropicModel() {
+  return readSetting('cleanup_anthropic_model', DEFAULT_ANTHROPIC_MODEL);
+}
+export function setCleanupAnthropicModel(model) {
+  writeSetting('cleanup_anthropic_model', model);
+}
+
 const NS_KEY = 'noiseSuppressionEnabled';
 
 export function getNoiseSuppressionEnabled() {

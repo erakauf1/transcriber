@@ -4,6 +4,20 @@ const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ATTRIBUTION_TITLE = 'Voice Note Transcriber';
 const ATTRIBUTION_REFERER = 'https://the-transcriber.netlify.app';
 
+// Newer Claude models reject `thinking: { type: 'disabled' }` with a 400, so
+// each gets the closest "think as little as possible" setting it accepts.
+// Always-thinking models also get output headroom so a short thinking pass
+// can't eat into the cleaned text.
+function anthropicThinkingParams(model, maxTokens) {
+  if (model === 'claude-sonnet-5-5') {
+    return { thinking: { type: 'between_tools' } };
+  }
+  if (model === 'claude-opus-5-5' || model.startsWith('claude-fable-')) {
+    return { output_config: { effort: 'low' }, max_tokens: Math.max(maxTokens, 16000) };
+  }
+  return { thinking: { type: 'disabled' } };
+}
+
 async function callAnthropic({ model, apiKey, systemPrompt, messages, maxTokens, timeoutMs }) {
   let res;
   try {
@@ -18,7 +32,7 @@ async function callAnthropic({ model, apiKey, systemPrompt, messages, maxTokens,
       body: JSON.stringify({
         model,
         max_tokens: maxTokens,
-        thinking: { type: 'disabled' },
+        ...anthropicThinkingParams(model, maxTokens),
         system: systemPrompt,
         messages,
       }),
