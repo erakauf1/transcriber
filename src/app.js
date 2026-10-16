@@ -10,6 +10,7 @@ import {
   getOpenRouterKey, setOpenRouterKey, hasOpenRouterKey,
   getCleanupProvider, setCleanupProvider, getCleanupModel, setCleanupModel,
   getCleanupAnthropicModel, setCleanupAnthropicModel,
+  getRefineAnthropicModel, setRefineAnthropicModel,
   getRefineProvider, setRefineProvider, getRefineModel, setRefineModel,
   getNoiseSuppressionEnabled, setNoiseSuppressionEnabled,
 } from './settings.js';
@@ -382,7 +383,7 @@ $('btn-refine').onclick = async () => {
       refineChips = await generateRefinementChips(
         $('result-text').value,
         state.language ?? 'en',
-        resolveStep(getRefineProvider(), getRefineModel())
+        resolveStep(getRefineProvider(), getRefineModel(), getRefineAnthropicModel())
       );
     } catch (err) {
       refineError = err.message;
@@ -404,7 +405,7 @@ async function handleChipClick(chip) {
       $('result-text').value,
       state.language ?? 'en',
       chip.instruction,
-      resolveStep(getRefineProvider(), getRefineModel())
+      resolveStep(getRefineProvider(), getRefineModel(), getRefineAnthropicModel())
     );
     // Close the panel and reset chips so next open generates fresh options for the new text.
     refineOpen = false;
@@ -515,6 +516,12 @@ wireProviderPicker({
   modelGetter: getRefineModel,
   modelSetter: setRefineModel,
   customInput: $('model-custom-refine'),
+  anthropic: {
+    row: $('anthropic-model-row-refine'),
+    select: $('anthropic-model-refine'),
+    getter: getRefineAnthropicModel,
+    setter: setRefineAnthropicModel,
+  },
 });
 
 // Noise suppression toggle

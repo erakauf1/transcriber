@@ -105,6 +105,13 @@ export function setCleanupAnthropicModel(model) {
   writeSetting('cleanup_anthropic_model', model);
 }
 
+export function getRefineAnthropicModel() {
+  return readSetting('refine_anthropic_model', DEFAULT_ANTHROPIC_MODEL);
+}
+export function setRefineAnthropicModel(model) {
+  writeSetting('refine_anthropic_model', model);
+}
+
 const NS_KEY = 'noiseSuppressionEnabled';
 
 export function getNoiseSuppressionEnabled() {
