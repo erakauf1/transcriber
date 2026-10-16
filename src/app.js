@@ -461,8 +461,12 @@ function wireProviderPicker({ providerSelect, providerGetter, providerSetter, mo
   if (anthropic) {
     anthropic.row.hidden = savedProvider !== 'anthropic';
     anthropic.select.value = anthropic.getter();
-    // A stored ID no longer in the list falls back to the first option.
-    if (!anthropic.select.value) anthropic.select.selectedIndex = 0;
+    // A stored ID no longer in the list falls back to the first option, and
+    // the fallback is persisted so requests don't keep sending the stale ID.
+    if (!anthropic.select.value) {
+      anthropic.select.selectedIndex = 0;
+      anthropic.setter(anthropic.select.value);
+    }
     anthropic.select.onchange = () => anthropic.setter(anthropic.select.value);
   }
 

@@ -47,6 +47,9 @@ async function callAnthropic({ model, apiKey, systemPrompt, messages, maxTokens,
     throw new Error(detail ? `Request failed: ${detail}` : `Request failed (HTTP ${res.status})`);
   }
   const data = await res.json();
+  if (data.stop_reason === 'refusal') {
+    throw new Error('The model declined this request — try again or pick another model');
+  }
   const out = data.content?.find((b) => b.type === 'text')?.text?.trim();
   if (!out) throw new Error('Empty response');
   return out;

@@ -73,6 +73,16 @@ describe('callChatModel — anthropic', () => {
     })).rejects.toThrow();
   });
 
+  it('throws a clear error when the model refuses', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      okResponse({ stop_reason: 'refusal', content: [] })
+    ));
+    await expect(callChatModel({
+      provider: 'anthropic', model: 'claude-sonnet-5-5', apiKey: 'k', systemPrompt: 's',
+      messages: [{ role: 'user', content: 'x' }], maxTokens: 100,
+    })).rejects.toThrow(/declined/);
+  });
+
   it('throws on empty content', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => okResponse({ content: [] })));
     await expect(callChatModel({
