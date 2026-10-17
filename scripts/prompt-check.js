@@ -5,6 +5,7 @@
 //    or: OPENAI_API_KEY=sk-... PROVIDER=openai npm run prompt-check
 import { readFileSync } from 'node:fs';
 import { cleanup } from '../src/cleanup.js';
+import { restoreEnglishTerms } from '../src/englishTerms.js';
 import { detectLanguage } from '../src/language.js';
 
 const DEFAULT_MODEL = { openai: 'gpt-4o', anthropic: 'claude-sonnet-5' };
@@ -39,7 +40,9 @@ for (const { name, text } of fixtures) {
   console.log(`\n=== ${name} [${language}] ===`);
   console.log(`--- raw ---\n${text}`);
   try {
-    const cleaned = await cleanup(text, language, { provider, model, apiKey });
+    const withTerms = await restoreEnglishTerms(text, language, { provider, model, apiKey });
+    if (withTerms !== text) console.log(`--- english terms ---\n${withTerms}`);
+    const cleaned = await cleanup(withTerms, language, { provider, model, apiKey });
     console.log(`--- cleaned ---\n${cleaned}`);
   } catch (err) {
     console.log(`ERROR: ${err.message}`);
