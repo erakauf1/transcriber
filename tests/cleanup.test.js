@@ -57,6 +57,12 @@ describe('buildSystemPrompt', () => {
     expect(p).toContain('date and number expressions');
   });
 
+  it('asks for a 24-hour clock when the part of day is known', () => {
+    const p = buildSystemPrompt('he');
+    expect(p).toContain('24-hour clock');
+    expect(p).toContain('"18:30"');
+  });
+
   it('unknown language falls back to English', () => {
     expect(buildSystemPrompt('xx')).toContain('The message is in English');
   });

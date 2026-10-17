@@ -25,7 +25,8 @@ export function buildSystemPrompt(language) {
     `- If the speaker circles back to an earlier topic, fold that remark into where it belongs`,
     `- Drop pure detours that are not part of the message (e.g. "wait, someone's at the door")`,
     `- Add paragraph breaks (blank lines) between distinct topics or thoughts`,
-    `- Format spoken times and measurements as digits — "שבע וחצי" → "7:30", "three thirty" → "3:30", "תשעים סנטימטר" → "90 ס"מ"`,
+    `- Format spoken times and measurements as digits — "שבע וחצי" → "7:30", "תשעים סנטימטר" → "90 ס"מ"`,
+    `- Write times of day on a 24-hour clock whenever the part of day is known — from words like אחר הצהריים / בערב / בלילה / PM, or from context (an afternoon meeting, "after work", a time later the same afternoon): "שש וחצי אחר הצהריים" → "18:30", "eight in the evening" → "20:00". For a time from 13:00 on, drop the now-redundant part-of-day word (keep בבוקר / AM with a morning time, where the digits alone don't say it). If the part of day truly cannot be told, keep the time as spoken`,
     `- Use standard abbreviations where a native speaker would in a typed message — נתב"ג for בן גוריון (the airport), מחו"ל for חוץ לארץ, ס"מ for סנטימטר, etc.`,
     `- When the speaker lists items, tasks, or options, format as a list — use "• " for unordered items, "1. / 2. / …" for items the speaker numbers or orders (ראשית/שנית, first/second, שאלה ראשונה/שנייה)`,
     `- If a list has a lead-in phrase (e.g. "we need to:", "שני דברים:"), keep it on its own line followed by the list items`,
@@ -57,6 +58,8 @@ const FEW_SHOT_EXAMPLES = {
     { role: 'assistant', content: 'אני עדיין ברעננה, ניפגש שם בשמונה.' },
     { role: 'user', content: 'אממ אני צריך מונית לבן גוריון ביום שישי, הטיסה שלנו ממריאה בשבע וחצי בבוקר, אנחנו חמישה אנשים' },
     { role: 'assistant', content: 'אני צריך מונית לנתב"ג ביום שישי. הטיסה שלנו ממריאה ב-7:30 בבוקר, אנחנו חמישה אנשים' },
+    { role: 'user', content: 'אז מחר אחר הצהריים יש לי פגישה בארבע וחצי, אה, ואם זה נגמר עד שש אני מגיע אלייך' },
+    { role: 'assistant', content: 'מחר יש לי פגישה ב-16:30, ואם זה נגמר עד 18:00 אני מגיע אלייך' },
   ],
   en: [
     { role: 'user', content: 'so um I think we should, we should probably push the meeting to, to Tuesday because I have this thing' },
@@ -65,6 +68,8 @@ const FEW_SHOT_EXAMPLES = {
     { role: 'assistant', content: "I'm still in Raanana, let's meet there at eight." },
     { role: 'user', content: "the flight's at seven thirty AM from JFK, um, five of us with three big bags" },
     { role: 'assistant', content: "The flight's at 7:30 AM from JFK, five of us with three big bags" },
+    { role: 'user', content: "so the dinner is at, uh, eight in the evening, and drinks before that around six thirty" },
+    { role: 'assistant', content: "The dinner is at 20:00, and drinks before that around 18:30" },
   ],
 };
 
