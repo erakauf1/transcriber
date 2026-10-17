@@ -55,7 +55,7 @@ No runtime dependencies — Vite for bundling, Vitest for tests.
 | `src/state.js` | Pure reducer (phases: idle → recording → transcribing → cleaning → done) |
 | `src/recorder.js` | MediaRecorder wrapper, 5-min cap, level metering |
 | `src/transcribe.js` | OpenAI transcription API call |
-| `src/loanwords.js` | Deterministic lookup table — restores transliterated work terms to Latin before cleanup |
+| `src/englishTerms.js` | Before cleanup, the model spots English terms written in Hebrew letters (by context); code applies only Latin-script replacements |
 | `src/cleanup.js` | Transcript cleanup via the selected provider |
 | `src/refine.js` | One-tap refinement chips + apply, via the selected provider |
 | `src/llmClient.js` | Shared request helper used by `cleanup.js` and `refine.js` for all three providers (OpenAI, Anthropic, OpenRouter) |

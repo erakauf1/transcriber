@@ -14,7 +14,7 @@ export function buildSystemPrompt(language) {
     // Deliberately absent: any instruction to rewrite words that "look transliterated".
     // That mandate was measured to make the model occasionally rewrite a malformed
     // place name into a different real city. Transliteration is now undone
-    // deterministically in src/loanwords.js, before this prompt ever sees the text.
+    // in src/englishTerms.js, a guarded step that runs before this prompt sees the text.
     `Never change a name of a person or place — not its script, not its spelling, and never to a different name, even if it looks misspelled or reads awkwardly in context. A wrong name is worse than an awkward one.`,
     `If a word is clearly not a real word in the message's language and a very similar real word exists, correct it — but never change one valid word to another.`,
     ``,

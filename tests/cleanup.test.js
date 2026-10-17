@@ -35,7 +35,7 @@ describe('buildSystemPrompt', () => {
   });
 
   it('gives the model no mandate to rewrite words that look transliterated', () => {
-    // The root cause of substituted place names: see src/loanwords.js.
+    // The root cause of substituted place names: see src/englishTerms.js.
     const p = buildSystemPrompt('he');
     expect(p).not.toContain('Undo this');
     expect(p).not.toContain('transliterates');

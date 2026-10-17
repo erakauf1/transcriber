@@ -2,7 +2,7 @@ import { createRecorder } from './recorder.js';
 import { transcribe } from './transcribe.js';
 import { cleanup } from './cleanup.js';
 import { detectLanguage } from './language.js';
-import { restoreLoanwords } from './loanwords.js';
+import { restoreEnglishTerms } from './englishTerms.js';
 import { copyText } from './clipboard.js';
 import {
   getOpenAIKey, setOpenAIKey, hasOpenAIKey,
@@ -253,12 +253,11 @@ async function runTranscription() {
 
 async function runCleanup() {
   try {
-    // Undo transliterated work terms in code before the LLM sees the text — see loanwords.js.
-    const text = await cleanup(
-      restoreLoanwords(state.rawTranscript),
-      state.language,
-      { ...resolveStep(getCleanupProvider(), getCleanupModel(), getCleanupAnthropicModel()), onUsage: trackUsage('cleanup') }
-    );
+    const step = { ...resolveStep(getCleanupProvider(), getCleanupModel(), getCleanupAnthropicModel()), onUsage: trackUsage('cleanup') };
+    // English terms written in Hebrew letters are restored in a guarded step of
+    // their own, before cleanup sees the text — see englishTerms.js.
+    const withTerms = await restoreEnglishTerms(state.rawTranscript, state.language, step);
+    const text = await cleanup(withTerms, state.language, step);
     const autoCopied = await copyText(text);
     dispatch({ type: 'CLEANUP_OK', text, autoCopied });
   } catch (err) {
