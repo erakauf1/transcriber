@@ -22,7 +22,22 @@ const VERSION = 1;
 const BLOCKED_TIMEOUT_MS = 3000;
 const encoder = new TextEncoder();
 const isArrayBuffer = (x) => Object.prototype.toString.call(x) === '[object ArrayBuffer]';
-const toBase64 = (bytes) => btoa(String.fromCharCode(...bytes));
+
+function toBase64(bytes) {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+// Strict: canonical alphabet and padding only, so a crafted file can't smuggle
+// anything past the length checks.
+function fromBase64(text) {
+  if (typeof text !== 'string' || text.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(text)) return null;
+  const bin = atob(text);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
 
 export function openSecureStore(slot, options = {}) {
   const backend = 'backend' in options
@@ -195,4 +210,66 @@ export function indexedDbBackend(dbName) {
     },
     onVersionChange(cb) { versionChange.add(cb); },
   };
+}
+
+// ---------- passphrase envelope (export files) ----------
+
+export const ENVELOPE_FORMAT = 'transcriber.learned-fixes';
+const MAX_CIPHERTEXT = 256 * 1024;
+const invalidFile = () => new Error('Not a valid learned-fixes file, or wrong passphrase');
+
+async function passphraseKey(subtle, passphrase, salt, iterations) {
+  const base = await subtle.importKey('raw', encoder.encode(passphrase.normalize('NFC')), 'PBKDF2', false, ['deriveKey']);
+  return subtle.deriveKey(
+    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations },
+    base,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+}
+
+const envelopeAad = (iterations) => encoder.encode(`${ENVELOPE_FORMAT}:1:${iterations}`);
+
+export async function sealWithPassphrase(value, passphrase, {
+  subtle = globalThis.crypto?.subtle,
+  randomBytes = (n) => crypto.getRandomValues(new Uint8Array(n)),
+  iterations = 600_000,
+} = {}) {
+  const salt = randomBytes(16), iv = randomBytes(12);
+  const key = await passphraseKey(subtle, passphrase, salt, iterations);
+  const ct = await subtle.encrypt({ name: 'AES-GCM', iv, additionalData: envelopeAad(iterations) }, key, encoder.encode(JSON.stringify(value)));
+  return {
+    format: ENVELOPE_FORMAT,
+    v: 1,
+    kdf: { name: 'PBKDF2', hash: 'SHA-256', iterations },
+    salt: toBase64(salt),
+    iv: toBase64(iv),
+    ct: toBase64(new Uint8Array(ct)),
+  };
+}
+
+// Every failure (shape, bounds, wrong passphrase, tampering) is the same error:
+// a wrong passphrase and a tampered file are deliberately indistinguishable.
+export async function openWithPassphrase(envelope, passphrase, {
+  subtle = globalThis.crypto?.subtle,
+  minIterations = 600_000,
+  maxIterations = 2_000_000,
+} = {}) {
+  const exact = (o, keys) => o !== null && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).sort().join() === keys;
+  if (!exact(envelope, 'ct,format,iv,kdf,salt,v') || envelope.format !== ENVELOPE_FORMAT || envelope.v !== 1) throw invalidFile();
+  const { kdf } = envelope;
+  if (!exact(kdf, 'hash,iterations,name') || kdf.name !== 'PBKDF2' || kdf.hash !== 'SHA-256') throw invalidFile();
+  // Bounded before the KDF runs, so a crafted file can't hang the page.
+  if (!Number.isInteger(kdf.iterations) || kdf.iterations < minIterations || kdf.iterations > maxIterations) throw invalidFile();
+  const salt = fromBase64(envelope.salt), iv = fromBase64(envelope.iv), ct = fromBase64(envelope.ct);
+  if (salt?.length !== 16 || iv?.length !== 12 || !ct || ct.length < 16 || ct.length > MAX_CIPHERTEXT) throw invalidFile();
+  if (typeof passphrase !== 'string') throw invalidFile();
+  try {
+    const key = await passphraseKey(subtle, passphrase, salt, kdf.iterations);
+    const plain = await subtle.decrypt({ name: 'AES-GCM', iv, additionalData: envelopeAad(kdf.iterations) }, key, ct);
+    return JSON.parse(new TextDecoder().decode(plain));
+  } catch {
+    throw invalidFile();
+  }
 }

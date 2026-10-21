@@ -1,4 +1,4 @@
-import { openSecureStore, SecureStoreError } from './secureStore.js';
+import { openSecureStore, SecureStoreError, sealWithPassphrase, openWithPassphrase } from './secureStore.js';
 import { validateDocument, isLearnableRule, checkRuleSet, ruleKey, MAX_RULES } from './corrections.js';
 
 export class RuleConflictError extends Error {
@@ -19,6 +19,9 @@ export class StoreResetRequired extends Error {
 const emptyDoc = () => ({ v: 1, rules: [], examples: [] });
 const MAX_COUNT = 1_000_000;
 const LOCK_NAME = 'transcriber-corrections';
+export const MAX_EXPORT_BYTES = 262_144;
+const invalidFile = () => new Error('Not a valid learned-fixes file, or wrong passphrase');
+const later = (a, b) => (a > b ? a : b);
 
 // The learned-fixes document: { v: 1, rules: [{ from, to, language, count,
 // createdAt, lastUsedAt }], examples: [] }. Every operation decrypts from storage
@@ -29,6 +32,9 @@ export function createCorrectionsStore({
   today = () => new Date().toISOString().slice(0, 10),
   channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('transcriber-corrections') : null,
   locks = globalThis.navigator?.locks,
+  subtle,
+  randomBytes,
+  passphrase: kdfOptions = {}, // tests only: lower PBKDF2 iteration bounds
 } = {}) {
   const listeners = new Set();
   let validated = null; // { rev, result }: the stored-mode verdict for one record
@@ -163,6 +169,53 @@ export function createCorrectionsStore({
         await store.clear();
         validated = null;
         notify();
+      });
+    },
+
+    // Always passphrase-encrypted: the file travels (AirDrop, iCloud Drive, mail).
+    async exportFixes(passphrase) {
+      const r = await queue.then(read);
+      if (r.status !== 'ok' && r.status !== 'empty') throw new SecureStoreError(r.status);
+      const envelope = await sealWithPassphrase(r.doc, passphrase, { subtle, randomBytes, ...kdfOptions });
+      const json = JSON.stringify(envelope);
+      if (json.length > MAX_EXPORT_BYTES) throw new Error('Too many learned fixes to export');
+      return new File([json], `voicenote-learned-fixes-${today()}.json`, { type: 'application/json' });
+    },
+
+    // All-or-nothing validation, then a merge in which the local list wins.
+    async importFixes(file, passphrase, { confirmReset = false } = {}) {
+      if (!file || file.size > MAX_EXPORT_BYTES) throw invalidFile();
+      let envelope;
+      try {
+        envelope = JSON.parse(await file.text());
+      } catch {
+        throw invalidFile();
+      }
+      const value = await openWithPassphrase(envelope, passphrase, { subtle, ...kdfOptions });
+      const incoming = validateDocument(value, { mode: 'import' });
+      if (!incoming.ok) throw invalidFile();
+      return serial(async () => {
+        const doc = await writableDoc({ confirmReset });
+        const rules = [...doc.rules];
+        const added = [], skipped = [];
+        let updated = 0;
+        // Highest count first, so a full list skips the least used.
+        for (const rule of [...incoming.doc.rules].sort((a, b) => b.count - a.count)) {
+          const i = rules.findIndex((r) => ruleKey(r) === ruleKey(rule));
+          if (i >= 0) {
+            const local = rules[i];
+            if (local.to !== rule.to) { skipped.push({ rule, reason: 'conflict' }); continue; }
+            const merged = { ...local, count: Math.max(local.count, rule.count), lastUsedAt: later(local.lastUsedAt, rule.lastUsedAt) };
+            if (merged.count !== local.count || merged.lastUsedAt !== local.lastUsedAt) { rules[i] = merged; updated++; }
+            continue;
+          }
+          if (rules.length >= MAX_RULES) { skipped.push({ rule, reason: 'full' }); continue; }
+          if (!checkRuleSet([...rules, rule]).ok) { skipped.push({ rule, reason: 'conflict' }); continue; }
+          rules.push(rule);
+          added.push(rule);
+        }
+        if (added.length || updated) await write(rules);
+        return { added, updated, skipped };
       });
     },
 
