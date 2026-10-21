@@ -293,10 +293,12 @@ function noteHit(rule, matched, written) {
 async function runTranscription() {
   noteCost = { cleanup: null, refine: null };
   appliedRules = new Map();
+  appliedShown = '';
   const rulesLoading = learnActive() ? loadRulesForNote() : Promise.resolve([]);
   try {
     const heard = await transcribe(state.audioBlob, getOpenAIKey());
-    const rules = await rulesLoading;
+    // Re-checked after the awaits: Learning may have been switched off meanwhile.
+    const rules = learnActive() ? await rulesLoading : [];
     notePassRules = rules;
     noteRules = rules;
     // The pre-pass runs here, not in runCleanup, so the cleanup fallback, Retry
@@ -323,7 +325,7 @@ async function runCleanup(rules = notePassRules) {
     const cleaned = await cleanup(withTerms, state.language, step);
     // The post-pass stops the model from bringing a fixed error back. Its hits are
     // shown but not counted: the pre-pass already counted the same occurrence.
-    const text = safeApply(cleaned, rules, noteHit);
+    const text = safeApply(cleaned, learnActive() ? rules : [], noteHit);
     const autoCopied = await copyText(text);
     dispatch({ type: 'CLEANUP_OK', text, autoCopied });
   } catch (err) {
@@ -705,8 +707,11 @@ function renderLearnApplied() {
 
 // Taps on a chip must not blur the textarea: no change event and no re-render
 // between press and click, so an edit made after the chips appeared survives.
+// The refine chips get the same treatment: the blur's change event re-renders,
+// and a chip rebuilt between press and release would swallow the tap.
 for (const type of ['pointerdown', 'mousedown']) {
   $('learn-chips').addEventListener(type, (e) => e.preventDefault());
+  $('refine-chips').addEventListener(type, (e) => e.preventDefault());
 }
 
 let fixesShown = [];

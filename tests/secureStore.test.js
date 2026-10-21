@@ -133,3 +133,24 @@ describe('openSecureStore', () => {
     expect(a.shared.map.size).toBe(0);
   });
 });
+
+describe('key cache across a clear', () => {
+  it('never re-caches a key read before a clear that finished first', async () => {
+    const backend = memoryBackend();
+    await open(backend).set({ n: 1 });
+    const store = open(backend);
+    // Hold the key read until the clear has run.
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const read = backend.read.bind(backend);
+    backend.read = async (name) => { const v = await read(name); if (name === 'key') { await gate; backend.read = read; } return v; };
+    const pending = store.get().catch(() => null);
+    await new Promise((r) => setTimeout(r, 0));
+    await store.clear();
+    release();
+    await pending;
+    await store.set({ n: 2 });
+    expect(backend.shared.map.has('key')).toBe(true);
+    expect((await open(backend).get()).value).toEqual({ n: 2 });
+  });
+});

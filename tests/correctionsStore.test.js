@@ -193,3 +193,14 @@ describe('correctionsStore', () => {
     expect((await broken.loadState()).unreadable).toBe(true);
   });
 });
+
+describe('saving an existing rule', () => {
+  it('keeps its count and dates', async () => {
+    const { store } = setup();
+    await store.saveRule(R('jira', 'Jira'));
+    store.recordHits([R('jira', 'Jira')]);
+    const again = await store.saveRule(R('jira', 'Jira'));
+    expect(again.replaced).toBeNull();
+    expect((await store.loadState()).rules[0].count).toBe(2);
+  });
+});

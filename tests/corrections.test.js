@@ -392,3 +392,16 @@ describe('relevantRules / vocabularyTerms', () => {
     expect(vocabularyTerms(rules, { maxChars: 15 })).toEqual(['כהנא', 'בן גוריון']);
   });
 });
+
+describe('review fixes', () => {
+  it('blocks capitalised English stopwords too', () => {
+    expect(isLearnableRule(R('And', 'Andy'))).toBe(false);
+    expect(isLearnableRule(R('They', 'Thea'))).toBe(false);
+  });
+
+  it('treats any unknown top-level key as unsupported, never unreadable', () => {
+    for (const k of ['', 'rule', 'e', 's']) {
+      expect(validateDocument({ v: 1, rules: [], examples: [], [k]: 1 }, { mode: 'stored' }).unsupported).toBe(true);
+    }
+  });
+});

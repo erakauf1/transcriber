@@ -103,6 +103,11 @@ export function createCorrectionsStore({
       return serial(async () => {
         if (!isLearnableRule({ from, to, language })) throw new Error('This fix cannot be learned');
         const doc = await writableDoc({ confirmReset });
+        // Saving what is already there (a double tap, or another tab saving the
+        // same chip) keeps the rule's count and dates.
+        if (doc.rules.some((r) => r.language === language && r.from === from && r.to === to)) {
+          return { rules: doc.rules, evicted: null, replaced: null };
+        }
         let replaced = null;
         let rules = doc.rules.filter((r) => {
           if (r.language === language && r.from === from) { replaced = r; return false; }

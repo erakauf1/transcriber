@@ -90,8 +90,8 @@ export function isLearnableRule(rule) {
   if (normalizeRuleString(from) !== from || normalizeRuleString(to) !== to) return false;
   if (language !== ruleLanguage(from) || from === to || isPrefixOnly(from, to)) return false;
   if (!from.includes(' ') && letterCount(from) < 3) return false;
-  if (STOPWORDS.has(from)) return false;
-  if (stripPrefixes(from).slice(1).some((s) => letterCount(s) >= 3 && STOPWORDS.has(s))) return false;
+  if (STOPWORDS.has(from.toLowerCase())) return false;
+  if (stripPrefixes(from).slice(1).some((s) => letterCount(s) >= 3 && STOPWORDS.has(s.toLowerCase()))) return false;
   return checkRuleSet([rule]).ok;
 }
 
@@ -464,6 +464,7 @@ export function mergeCandidates(found, pending, dismissed) {
 // ---------- documents ----------
 
 const DOC_KEYS = 'examples,rules,v';
+const KNOWN_DOC_KEYS = new Set(DOC_KEYS.split(','));
 const RULE_KEYS = 'count,createdAt,from,language,lastUsedAt,to';
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const isPlain = (o) => o !== null && typeof o === 'object' && !Array.isArray(o);
@@ -486,7 +487,7 @@ const byUse = (a, b) => b.count - a.count || b.lastUsedAt.localeCompare(a.lastUs
 // over one bad rule hurts more than it protects.
 export function validateDocument(obj, { mode }) {
   if (!isPlain(obj)) return { ok: false };
-  if (mode === 'stored' && ((typeof obj.v === 'number' && obj.v > 1) || !keysOf(obj).split(',').every((k) => DOC_KEYS.includes(k)))) {
+  if (mode === 'stored' && ((typeof obj.v === 'number' && obj.v > 1) || !Object.keys(obj).every((k) => KNOWN_DOC_KEYS.has(k)))) {
     return { ok: false, unsupported: true };
   }
   if (keysOf(obj) !== DOC_KEYS || obj.v !== 1 || !Array.isArray(obj.rules) || !Array.isArray(obj.examples) || obj.examples.length) {
@@ -537,7 +538,7 @@ export function vocabularyTerms(rules, { maxTerms = MAX_VOCAB_TERMS, maxChars = 
   const terms = [];
   let chars = 0;
   for (const r of [...rules].filter((r) => r.count >= 2).sort(byUse)) {
-    if (r.to.split(' ').length > 2 || STOPWORDS.has(r.to) || terms.includes(r.to)) continue;
+    if (r.to.split(' ').length > 2 || STOPWORDS.has(r.to.toLowerCase()) || terms.includes(r.to)) continue;
     const add = (terms.length ? 2 : 0) + r.to.length;
     if (terms.length >= maxTerms || chars + add > maxChars) break;
     terms.push(r.to);

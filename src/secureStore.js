@@ -34,9 +34,11 @@ export function openSecureStore(slot, options = {}) {
   const aad = encoder.encode(`transcriber:secureStore:${slot}:v${VERSION}`);
   const deferredClear = new Set();
   let key = null; // the only cache; dropped whenever another tab deletes or upgrades
+  let generation = 0; // bumped on every drop, so a read that straddles one can't re-cache a dead key
   let persistAsked = false;
+  const dropKey = () => { key = null; generation++; };
 
-  backend?.onVersionChange(() => { key = null; });
+  backend?.onVersionChange(dropKey);
 
   function ready() {
     if (!backend || !subtle) throw new SecureStoreError('unavailable');
@@ -52,6 +54,7 @@ export function openSecureStore(slot, options = {}) {
 
   async function getKey({ create }) {
     if (key) return key;
+    const gen = generation;
     let k = await read('key');
     if (!k && create) {
       // generateKey is async, so it can't run inside the IndexedDB transaction.
@@ -65,6 +68,9 @@ export function openSecureStore(slot, options = {}) {
         k = await read('key');
       }
     }
+    // A clear or another tab's delete happened meanwhile: what was read may be a
+    // dead key, so read again from the database as it is now.
+    if (gen !== generation) return getKey({ create });
     if (k) key = k;
     return k ?? null;
   }
@@ -109,7 +115,7 @@ export function openSecureStore(slot, options = {}) {
     // onDeferredClear callbacks run then.
     clear() {
       ready();
-      key = null;
+      dropKey();
       return new Promise((resolve, reject) => {
         let timer = null, settled = false;
         const onBlocked = () => {
@@ -118,7 +124,7 @@ export function openSecureStore(slot, options = {}) {
         };
         backend.destroy({ onBlocked }).then(() => {
           clearTimeout(timer);
-          key = null;
+          dropKey();
           if (settled) deferredClear.forEach((cb) => cb());
           else { settled = true; resolve(); }
         }, () => {
