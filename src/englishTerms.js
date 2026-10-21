@@ -1,4 +1,5 @@
 import { callChatModel } from './llmClient.js';
+import { PREFIXES, HEB } from './hebrew.js';
 
 // Restores English terms that speech-to-text wrote in Hebrew letters
 // ("ויפי אינג'ינירינג" -> "VP engineering"), judged by the model from context.
@@ -9,13 +10,6 @@ import { callChatModel } from './llmClient.js';
 // (רעננה -> הרצליה). Here the model never rewrites the message. It only proposes
 // Hebrew -> English pairs, and code applies a pair only when its replacement is
 // in Latin letters, so a Hebrew name can never turn into another Hebrew name.
-
-// Hebrew glues prefix letters (ב ל ה ו כ מ ש) onto a following word, up to two of
-// them. They are kept in Hebrew: "לסטייג'ינג" -> "לstaging", "מהבקנד" -> "מהbackend".
-const PREFIXES = 'בלהוכמש';
-
-// A Hebrew letter on either side means we are inside a longer word (באג vs באגרטל).
-const HEB = '֐-׿';
 
 // What a replacement may contain: Latin letters, digits, and the punctuation that
 // appears in English terms (R&D, follow-up, CI/CD, Node.js). No Hebrew, ever.
