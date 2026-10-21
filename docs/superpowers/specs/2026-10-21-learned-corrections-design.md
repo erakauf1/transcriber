@@ -285,8 +285,10 @@ is ever built from rule strings.
    - Every word token can match, including a lone `prefix: true` token
      from the post-split.
    - A token glued to `@` on either side never matches, so `dan@…` and
-     `@dan` are left alone. This restriction only removes matches, so it
-     cannot affect idempotence.
+     `@dan` are left alone. This cannot affect idempotence, because
+     `@`-adjacency never changes across a splice: a `to` cannot contain
+     `@` (allowlist), and the splice keeps the matched token's neighbours
+     as they were.
 3. **Splice into the original text.** Write the prefix as written, then
    `rule.to`, then the possessive suffix as written.
    - For a sentence-initial capitalised match, `rule.to` is passed
@@ -391,8 +393,13 @@ and for `isLearnableRule`'s self-check.
 
 For each rule's `to` it then does a constant number of lookups:
 1. **Empty `p`.** The tokens of `c(T) + s` go straight through the
-   scanner predicate. That is 2 casings × 2 suffixes for Latin, 1 form for
-   Hebrew.
+   scanner predicate, with sentence start both on and off. That is 2
+   casings × 2 suffixes for a Latin `T`, and 1 form for a Hebrew `T`.
+   - Why one form is enough for Hebrew: the `'s` variant can occur, for
+     example `jira` → `ג'ירה` matched as `jira's` writes `ג'ירה's`. But
+     that tokenizes as one mixed-script token, which no `from` token can
+     equal, because `normalizeRuleString` forbids mixed-script words. Its
+     `'s`-stripped key is `T` itself, which is already checked.
 2. **Hyphenated `p` before a Hebrew `T₀`.** This forms one `WORD`. It
    conflicts iff some `from` token indexed as `p + h + X` has `X = T₀`.
 3. **Glued `p` before a Hebrew `T₀`.** This forms one token `p + T₀`. It
@@ -402,14 +409,25 @@ For each rule's `to` it then does a constant number of lookups:
 4. **Any `p` before a Latin or digit `T₀`.** This post-splits into a lone
    `p` token. It conflicts iff the "lone prefix `from` token" flag is set.
 
-`checkRuleSet` returns **all** conflicting pairs in one pass. The stored
-mode (§3) then drops the lower-`count` rule of each pair greedily,
-highest `count` first, without re-running the check. The stored-mode
-verdict is cached in memory, keyed by the record's IV: the IV is unique
-per write, so the cache can never be stale. Two tests guard this
-implementation:
-- a property test that the analytic and enumerated checks agree on
-  generated rule sets;
+`checkRuleSet` returns **all** conflicting pairs in one pass. Stored mode
+(§3) then resolves them in a single deterministic walk:
+- order the rules by `count` descending, then `lastUsedAt` descending,
+  then `ruleKey`;
+- keep a rule only if it conflicts with no rule already kept.
+
+The result is always valid, because the invariant is pairwise and any
+subset of a valid set is valid. Self-conflicting rules never reach this
+step, because `isLearnableRule` has already removed them.
+
+The stored-mode verdict is cached in memory, keyed by the `rev` that
+`get()` returns (§2), and is filled only after a successful decrypt and
+validation. `rev` changes on every write, so the cache can never be
+stale.
+
+Two tests guard this implementation:
+- an **oracle** property test against the enumerated definition. The
+  analytic check must never accept a set the enumerated definition
+  rejects; any mismatch is fixed toward the stricter answer;
 - a performance test that 200 rules validate in well under 50 ms in
   Node.
 
@@ -428,7 +446,8 @@ and not in `STOPWORDS`. Order is by `count`, then `lastUsedAt`, cut at
 ```js
 export class SecureStoreError extends Error { /* code: 'unavailable' | 'unreadable' | 'unsupported' | 'blocked' */ }
 export function openSecureStore(slot, { backend, subtle, randomBytes } = {})
-  // → { get(): Promise<any|null>, set(value): Promise<void>, clear(): Promise<void> }
+  // → { get(): Promise<{ value, rev } | null>, set(value): Promise<void>, clear(): Promise<void> }
+  //   rev: opaque revision string = slot + IV (base64) + ciphertext length; changes on every write
 export function indexedDbBackend(dbName)       // lazy: touches indexedDB only on first call
 export async function sealWithPassphrase(value, passphrase, { subtle, randomBytes, iterations = 600_000 })
 export async function openWithPassphrase(envelope, passphrase,
@@ -471,7 +490,9 @@ own key.
   transaction, which would auto-commit.
 
 **Reads.**
-- No record → `null`.
+- No record → `null`. A readable record → `{ value, rev }`, where `rev`
+  lets callers cache derived results per write without seeing the IV
+  itself (§1, §3).
 - A record whose `v` is newer than this code understands →
   `SecureStoreError('unsupported')`. It is checked before decryption,
   because the AAD would not match anyway.
@@ -567,8 +588,10 @@ export class StoreResetRequired extends Error {}
     tab or stale service-worker code must not wipe a newer record.
   - Any other structural failure is `unreadable`.
   - Rules that fail `isLearnableRule` are dropped.
-  - For each pair that breaks the invariant, the lower-`count` rule is
-    dropped.
+  - Rules that break the invariant are resolved by the deterministic walk
+    in §1 (by `count`, then `lastUsedAt`, then `ruleKey`; keep a rule only
+    if it conflicts with nothing already kept). The verdict is cached by
+    `rev`.
   - The result reports `dropped`.
 
   I chose this lenient mode for stored data (unlike all-or-nothing
@@ -759,6 +782,12 @@ try {
     post-pass does not re-apply it.
   - **Learning off mid-note** sets `notePassRules = []`, so a later Retry
     cleanup runs no post-pass, matching the kill switch.
+  - **A failed or empty `loadState()` inside the `onChange` handler**
+    intersects `notePassRules` with an empty set, so the snapshot becomes
+    empty. That only turns the post-pass off, which is the safe direction,
+    and it is intended; it must not be "fixed" later. A `runCleanup(rules)`
+    already in flight keeps the array it was given, because the handler
+    replaces `notePassRules` and never mutates that array.
 
 Only the `cleanup` call changes:
 
@@ -1188,7 +1217,11 @@ learned-fixes file, or wrong passphrase".
 - **First-letter swaps between two prefix letters** with an otherwise
   equal word (ביקי → ויקי) are not learned. Stripping leaves `from ===
   to`, and the change is genuinely indistinguishable from a change of
-  preposition (ב → ו).
+  preposition (ב → ו). The same family covers a swap of two prefix
+  letters that also changes a later letter, when the from stem has fewer
+  than 4 letters (בראד → ורד). Both stems begin with ר, so this is
+  treated as a prefix change, and the short stem means the hunk is
+  dropped.
 - **Two word-boundary engines remain:** the regex in `englishTerms.js` and
   the tokenizer here. Consolidating `applyEnglishTerms` onto the tokenizer
   is a possible follow-up.
@@ -1266,8 +1299,14 @@ null`, or a pair of fake channels for the two-tab cases.
     - rejected: `jira` → `ג'ירה` (cross-script) with a `from` token
       `ה-ג'ירה`, and ג'ירה → Jira with a two-token `from` `רון ב` (the
       inserted lone `ב`);
-    - **oracle:** the analytic `checkRuleSet` equals the enumerated
-      definition on generated rule sets;
+    - **oracle:** the analytic `checkRuleSet` must never accept a set the
+      enumerated definition rejects, and the two should agree; a mismatch
+      is fixed toward the stricter answer. The generator covers:
+      - a lone-prefix `from` token;
+      - hyphen and maqaf prefixes;
+      - a Latin `from` with a Hebrew `to` matched in its `'s` form
+        (`jira` → `ג'ירה` on `jira's`);
+      - sentence start on and off;
     - **performance:** 200 rules validate in well under 50 ms in Node.
   - **Property test:** random valid rule sets, with a generator biased to
     **lowercase Latin `from`s**. Test strings concatenate `to`s and
@@ -1287,6 +1326,8 @@ null`, or a pair of fake channels for the two-tab cases.
 - **`secureStore.test.js`** (node environment):
   - round trip; no plaintext in the record; fresh IVs; the key is
     non-extractable;
+  - `get()` returns `{ value, rev }`; `rev` changes on every `set()` and
+    is stable across reads of the same record;
   - flipped `ct` or `iv` bytes, a missing key, a key that throws on read,
     or the wrong slot's AAD → `unreadable`; a record with `v: 2` →
     `unsupported`; no backend → `unavailable`;
@@ -1309,6 +1350,12 @@ null`, or a pair of fake channels for the two-tab cases.
     `confirmReset`, and clears and saves with it.
   - `replaced` / `evicted` / `RuleConflictError` naming the rule.
   - `loadState` never throws.
+  - The stored-mode validation cache:
+    - is hit on a repeated read with the same `rev`, and missed after a
+      write;
+    - is never filled for a record that failed decryption or validation;
+    - the tie-break walk is deterministic for equal `count`s and always
+      leaves a conflict-free set.
   - Import over 256 KB is rejected unread; added rules are listed.
 - **`cleanup.test.js`**: existing tests are unchanged.
   - `buildSystemPrompt('he', { corrections: [] }) ===
