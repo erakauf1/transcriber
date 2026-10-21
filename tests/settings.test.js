@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   getOpenAIKey, setOpenAIKey, hasOpenAIKey,
   getAnthropicKey, setAnthropicKey, hasAnthropicKey,
   getNoiseSuppressionEnabled, setNoiseSuppressionEnabled,
+  getLearningEnabled, setLearningEnabled, getLearningNoticeShown, setLearningNoticeShown,
   getOpenRouterKey, setOpenRouterKey, hasOpenRouterKey,
   getCleanupProvider, setCleanupProvider,
   getRefineProvider, setRefineProvider,
@@ -169,5 +170,32 @@ describe('Refine Anthropic model', () => {
     setRefineAnthropicModel('claude-opus-5-5');
     expect(getRefineAnthropicModel()).toBe('claude-opus-5-5');
     expect(getCleanupAnthropicModel()).toBe('claude-sonnet-5');
+  });
+});
+
+describe('learned fixes flags', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('default to learning on and the notice not yet shown', () => {
+    expect(getLearningEnabled()).toBe(true);
+    expect(getLearningNoticeShown()).toBe(false);
+  });
+
+  it('persist', () => {
+    setLearningEnabled(false);
+    setLearningNoticeShown(true);
+    expect(getLearningEnabled()).toBe(false);
+    expect(getLearningNoticeShown()).toBe(true);
+    expect(localStorage.getItem('learning_enabled')).toBe('false');
+    expect(localStorage.getItem('learning_notice_shown')).toBe('true');
+  });
+
+  it('fall back to their defaults when storage is blocked', () => {
+    setLearningEnabled(false);
+    setLearningNoticeShown(true);
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
+    expect(getLearningEnabled()).toBe(true);
+    expect(getLearningNoticeShown()).toBe(false);
+    spy.mockRestore();
   });
 });
