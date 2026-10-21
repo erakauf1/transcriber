@@ -152,6 +152,8 @@ describe('key cache across a clear', () => {
     await store.set({ n: 2 });
     expect(backend.shared.map.has('key')).toBe(true);
     expect((await open(backend).get()).value).toEqual({ n: 2 });
+  });
+});
 
 describe('passphrase envelope', () => {
   const fast = { subtle, iterations: 1000 };

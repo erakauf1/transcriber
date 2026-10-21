@@ -205,6 +205,8 @@ describe('saving an existing rule', () => {
     const again = await store.saveRule(R('jira', 'Jira'));
     expect(again.replaced).toBeNull();
     expect((await store.loadState()).rules[0].count).toBe(2);
+  });
+});
 
 describe('export / import', () => {
   const PW = 'correct horse battery';
