@@ -183,7 +183,7 @@ export function createCorrectionsStore({
     },
 
     // All-or-nothing validation, then a merge in which the local list wins.
-    async importFixes(file, passphrase, { confirmReset = false } = {}) {
+    async importFixes(file, passphrase, { confirmReset = false, signal } = {}) {
       if (!file || file.size > MAX_EXPORT_BYTES) throw invalidFile();
       let envelope;
       try {
@@ -195,6 +195,8 @@ export function createCorrectionsStore({
       const incoming = validateDocument(value, { mode: 'import' });
       if (!incoming.ok) throw invalidFile();
       return serial(async () => {
+        // Cancelled while decrypting: nothing is written.
+        if (signal?.aborted) throw new Error('Import cancelled');
         const doc = await writableDoc({ confirmReset });
         const rules = [...doc.rules];
         const added = [], skipped = [];

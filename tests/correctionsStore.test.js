@@ -284,3 +284,16 @@ describe('export / import', () => {
     expect(changed).toHaveBeenCalledOnce();
   });
 });
+
+describe('cancelled import', () => {
+  it('writes nothing once its signal is aborted', async () => {
+    const { store } = setup();
+    const full = { ...R('ann', 'Anna'), count: 1, createdAt: '2026-10-01', lastUsedAt: '2026-10-01' };
+    const env = await sealWithPassphrase({ v: 1, rules: [full], examples: [] }, 'correct horse battery', { subtle, iterations: 1000 });
+    const controller = new AbortController();
+    const pending = store.importFixes(new File([JSON.stringify(env)], 'f.json'), 'correct horse battery', { signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toThrow('Import cancelled');
+    expect((await store.loadState()).rules).toEqual([]);
+  });
+});

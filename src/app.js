@@ -822,6 +822,7 @@ glossaryToggle.onchange = () => setLearningGlossaryEnabled(glossaryToggle.checke
 let passAction = null;   // 'export' | 'import'
 let importFile = null;
 let exportFile = null;
+let transfer = null;     // AbortController of the run in flight; Cancel aborts it
 
 function transferStatus(...parts) {
   const el = $('fixes-transfer-status');
@@ -829,12 +830,16 @@ function transferStatus(...parts) {
   el.hidden = !parts.length;
 }
 
+function setTransferBusy(busy) {
+  $('btn-fixes-pass-go').disabled = busy;
+  $('fixes-pass').disabled = busy;
+  $('fixes-pass-confirm').disabled = busy;
+}
+
 function openPassRow(action) {
+  closePassRow();
   passAction = action;
-  exportFile = null;
   $('fixes-pass-row').hidden = false;
-  $('fixes-pass').value = '';
-  $('fixes-pass-confirm').value = '';
   $('fixes-pass').autocomplete = action === 'export' ? 'new-password' : 'current-password';
   $('fixes-pass-confirm').hidden = action !== 'export';
   $('btn-fixes-pass-go').hidden = false;
@@ -843,10 +848,14 @@ function openPassRow(action) {
   $('fixes-pass').focus();
 }
 
+// Also drops any half-typed passphrase and any sealed file still in memory.
 function closePassRow() {
+  transfer?.abort();
+  transfer = null;
   passAction = null;
   importFile = null;
   exportFile = null;
+  setTransferBusy(false);
   $('fixes-pass').value = '';
   $('fixes-pass-confirm').value = '';
   $('fixes-pass-row').hidden = true;
@@ -869,9 +878,10 @@ $('fixes-import-file').onchange = () => {
   importFile = file;
 };
 
-async function runImport(file, passphrase, { confirmReset = false } = {}) {
+async function runImport(file, passphrase, signal, { confirmReset = false } = {}) {
   try {
-    const { added, skipped } = await fixes().importFixes(file, passphrase, { confirmReset });
+    const { added, skipped } = await fixes().importFixes(file, passphrase, { confirmReset, signal });
+    if (signal.aborted) return;
     closePassRow();
     // Listed so the user can review what came in, and delete any of it.
     const parts = [added.length ? `Imported ${added.length} fixes: ` : 'No new fixes to import.'];
@@ -880,62 +890,89 @@ async function runImport(file, passphrase, { confirmReset = false } = {}) {
     transferStatus(...parts);
     refreshFixesList();
   } catch (err) {
+    if (signal.aborted) return;
     if (err instanceof StoreResetRequired) {
       if (confirm("Learned fixes on this device can't be read. Replace them with the imported ones? The unreadable list will be deleted.")) {
-        await runImport(file, passphrase, { confirmReset: true });
+        await runImport(file, passphrase, signal, { confirmReset: true });
       } else {
         closePassRow();
         transferStatus();
       }
       return;
     }
-    closePassRow();
+    // Keep the chosen file: a typo in the passphrase shouldn't mean picking it again.
+    setTransferBusy(false);
     transferStatus(err.message);
+    $('fixes-pass').focus();
   }
 }
 
 $('btn-fixes-pass-go').onclick = async () => {
+  if (transfer) return;
   const passphrase = $('fixes-pass').value;
   if (passAction === 'export') {
     if (passphrase.length < 10) { transferStatus('Use a passphrase of at least 10 characters.'); return; }
     if (passphrase !== $('fixes-pass-confirm').value) { transferStatus("The passphrases don't match."); return; }
-    $('fixes-pass').value = '';
-    $('fixes-pass-confirm').value = '';
-    transferStatus('Encrypting…');
-    try {
-      exportFile = await fixes().exportFixes(passphrase);
-    } catch (err) {
-      closePassRow();
-      transferStatus(err.message);
-      return;
-    }
-    // PBKDF2 takes about a second, after which navigator.share may have lost the
-    // tap's user activation — so sharing gets a tap of its own.
-    $('btn-fixes-pass-go').hidden = true;
-    $('btn-fixes-share').hidden = false;
-    transferStatus('Ready. Keep the passphrase: the file cannot be opened without it.');
-  } else if (passAction === 'import' && importFile) {
-    $('fixes-pass').value = '';
-    transferStatus('Decrypting…');
-    await runImport(importFile, passphrase);
-  }
-};
-
-$('btn-fixes-share').onclick = async () => {
-  const file = exportFile;
-  if (!file) return;
-  closePassRow();
-  transferStatus();
-  if (navigator.canShare?.({ files: [file] })) {
-    await navigator.share({ files: [file] }).catch(() => {});
+  } else if (passAction !== 'import' || !importFile) {
     return;
   }
+  const run = (transfer = new AbortController());
+  $('fixes-pass').value = '';
+  $('fixes-pass-confirm').value = '';
+  setTransferBusy(true);
+  if (passAction === 'import') {
+    transferStatus('Decrypting…');
+    await runImport(importFile, passphrase, run.signal);
+    if (transfer === run) transfer = null;
+    return;
+  }
+  transferStatus('Encrypting…');
+  let file;
+  try {
+    file = await fixes().exportFixes(passphrase);
+  } catch (err) {
+    if (run.signal.aborted) return;
+    closePassRow();
+    transferStatus(err.message);
+    return;
+  }
+  if (run.signal.aborted) return;
+  transfer = null;
+  setTransferBusy(false);
+  exportFile = file;
+  // PBKDF2 takes about a second, after which navigator.share may have lost the
+  // tap's user activation — so sharing gets a tap of its own.
+  $('btn-fixes-pass-go').hidden = true;
+  $('btn-fixes-share').hidden = false;
+  transferStatus('Ready. Keep the passphrase: the file cannot be opened without it.');
+};
+
+function downloadFile(file) {
   const url = URL.createObjectURL(file);
   const a = document.createElement('a');
   a.href = url;
   a.download = file.name;
   a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
+  // Some browsers read the blob after the click's task; give them time.
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+$('btn-fixes-share').onclick = async () => {
+  const file = exportFile;
+  if (!file) return;
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file] });
+    } catch (err) {
+      // Dismissing the share sheet is a choice; keep the file so they can try again.
+      if (err?.name === 'AbortError') return;
+      downloadFile(file);
+    }
+  } else {
+    downloadFile(file);
+  }
+  closePassRow();
+  transferStatus();
 };
 
 // Another tab (or this one) changed the stored fixes.
@@ -953,6 +990,7 @@ fixes().onChange(async () => {
 $('btn-new').onclick = () => dispatch({ type: 'RESET' });
 
 const setSettingsOpen = (open) => {
+  if (!open) closePassRow();
   settingsOpen = open;
   render();
   if (open) refreshFixesList();
