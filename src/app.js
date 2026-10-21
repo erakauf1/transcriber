@@ -37,6 +37,10 @@ let refineLoading = false;
 let refineApplying = false;
 let refineError = null;
 
+// The text last written into #result-text. render() writes the textarea only
+// when the source text changes, so no unrelated re-render can wipe an edit.
+let lastShownText = null;
+
 // Estimated LLM spend for the note on screen, per step: { usd, tokens, unknown, model }.
 // Reset per recording; a cleanup retry or extra refine adds to it.
 let noteCost = { cleanup: null, refine: null };
@@ -129,6 +133,7 @@ function render() {
     refineLoading = false;
     refineApplying = false;
     refineError = null;
+    lastShownText = null;
   }
 
   $('screen-idle').hidden = state.phase !== 'idle';
@@ -166,7 +171,8 @@ function render() {
     const cleanupFailed = !state.cleanedText;
     $('cleanup-error').hidden = !cleanupFailed;
     $('cleaned-badge').hidden = cleanupFailed;
-    $('result-text').value = state.cleanedText ?? state.rawTranscript ?? '';
+    const shown = state.cleanedText ?? state.rawTranscript ?? '';
+    if (shown !== lastShownText) { $('result-text').value = shown; lastShownText = shown; }
     $('raw-text').textContent = state.rawTranscript ?? '';
     const cost = costText();
     $('cost-line').hidden = !cost;
@@ -387,12 +393,28 @@ $('btn-retry-transcribe').onclick = () => {
 };
 $('btn-cancel').onclick = () => dispatch({ type: 'RESET' });
 $('btn-retry-cleanup').onclick = () => {
+  commitEdits();
   dispatch({ type: 'CLEANUP_RETRY' });
   runCleanup();
 };
 
+// Brings state in line with the textarea, so Refine, Retry cleanup and later
+// renders work from what the user actually sees.
+function commitEdits() {
+  const current = $('result-text').value;
+  const baseline = state.cleanedText ?? state.rawTranscript ?? '';
+  if (current === baseline || !current.trim()) return;
+  lastShownText = current; // so the render below doesn't touch the textarea
+  dispatch({ type: 'EDIT_COMMIT', text: current });
+}
+
+$('result-text').addEventListener('change', () => commitEdits());
+
 $('btn-copy').onclick = async () => {
-  const ok = await copyText($('result-text').value);
+  // copyText must start synchronously inside the tap (iOS clipboard rule).
+  const copied = copyText($('result-text').value);
+  commitEdits();
+  const ok = await copied;
   if (ok) showCopied('Copied ✓');
   else $('copy-error').hidden = false;
 };
@@ -400,10 +422,12 @@ $('btn-copy').onclick = async () => {
 $('btn-whatsapp').onclick = () => {
   const text = $('result-text').value;
   window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  commitEdits();
 };
 
 $('btn-refine').onclick = async () => {
   if (refineApplying) return;
+  commitEdits();
   refineOpen = !refineOpen;
   render();
 
@@ -430,6 +454,7 @@ $('btn-refine').onclick = async () => {
 
 async function handleChipClick(chip) {
   if (refineApplying) return;
+  commitEdits();
   refineApplying = true;
   refineError = null;
   render();
