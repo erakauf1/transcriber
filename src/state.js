@@ -34,6 +34,13 @@ export function reduce(state, event) {
       return { ...state, phase: 'cleaning', error: null, autoCopied: false };
     case 'REFINE_OK':
       return { ...state, cleanedText: event.text };
+    case 'EDIT_COMMIT':
+      if (state.phase !== 'result' || !event.text.trim()) return state;
+      // After a failed cleanup the textarea shows the raw transcript, so that is
+      // the field being edited — and Retry cleanup must start from the fix.
+      return state.cleanedText !== null
+        ? { ...state, cleanedText: event.text }
+        : { ...state, rawTranscript: event.text };
     case 'RESET':
       return { ...initialState };
     default:
