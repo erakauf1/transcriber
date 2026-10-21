@@ -220,9 +220,13 @@ it and it would add a second algorithm.
      filter 3);
    - a single-token `from` has ≥ 3 letters (`\p{L}` code points; marks
      and joiners don't count);
-   - no element of `stripPrefixes(from)` is in `STOPWORDS` (about 40
-     Hebrew and 40 English function words: של, את, על, זה, אם, the, and,
-     to, …);
+   - `from` is not in `STOPWORDS` (about 40 Hebrew and 40 English
+     function words: של, את, על, זה, אם, the, and, to, …), and no
+     prefix-stripped element of `stripPrefixes(from)` is a stopword of
+     **3+ letters**. Two-letter stopwords are not checked against stems,
+     because they would block real words and names: כהן (הן), ברק (רק),
+     בעל (על), כלא (לא). A `from` under 4 letters never matches a
+     prefixed form anyway;
    - `checkRuleSet([rule])` passes, so the rule is consistent with
      itself.
 7. **Inconsistent edit.** If `from` still matches in the edited text
@@ -324,6 +328,13 @@ start both on and off:
   `from`?
 - **later tokens of a `from`:** is any word token of the form equal
   (folded) to any later token of any rule's `from`?
+
+**Form consistency.** A hit on a multi-token `from` counts only if
+that `from`'s other tokens agree (folded) with the form's own tokens
+wherever they overlap the form; positions beyond either end of the form
+are unconstrained. Without this, every name-context sibling (filter 9)
+would be self-conflicting: `דני כהן` → `דני כהנא` writes `דני`, its own
+first token, although the following `כהנא` can never be `כהן`.
 
 The set is valid iff every answer is no, with one exception. A rule may
 match **its own** `to` only in the degenerate case where the whole of
