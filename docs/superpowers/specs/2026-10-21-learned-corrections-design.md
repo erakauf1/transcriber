@@ -63,16 +63,15 @@ call.
 
 ### 1. `src/hebrew.js` (new) and `src/corrections.js` (new)
 
-**`src/hebrew.js`** holds the Hebrew helpers. They move here from
-`englishTerms.js` lines 15, 18 and 24, so that `englishTerms.js` and
-`corrections.js` share them and `corrections.js` stays free of
-`llmClient`/`pricing` imports. `englishTerms.js` imports them from here.
-Its behaviour does not change.
+**`src/hebrew.js`** holds the Hebrew helpers. `PREFIXES` and `HEB` move
+here from `englishTerms.js` (lines 15 and 18), so both modules share them
+and `corrections.js` stays free of `llmClient`/`pricing` imports. `escape`
+(line 24) is not Hebrew-specific and stays in `englishTerms.js`, which
+`corrections.js` doesn't need because it builds no regex.
 
 ```js
 export const PREFIXES = 'בלהוכמש';
 export const HEB = '֐-׿';
-export const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');   // used by englishTerms.js only
 // Length-preserving fold of iOS Smart Punctuation and Hebrew geresh/gershayim:
 // ’ ‘ ׳ → '   and   “ ” „ ״ → "
 export function fold(text) { ... }
@@ -90,12 +89,12 @@ export function tokenize(text)                 // → [{ text, folded, start, en
 export function diffTokens(before, after)      // → [{ from: Token[], to: Token[] }]
 export function extractCandidates(before, after, { rules = [] } = {})
                                                // → [{ from, to, language, group }]
-export function mergeCandidates(found, pending, dismissed)   // → newest first, deduped
+export function mergeCandidates(found, pending, dismissed)   // → pending order kept, new appended, deduped
 export function normalizeRuleString(s)         // → string | null
 export function ruleLanguage(from)             // → 'he' | 'en'
 export function isLearnableRule(rule)          // shared gate: capture, saveRule, import, at-rest read
 export function checkRuleSet(rules)            // → { ok: true } | { ok: false, conflict: [a, b] }
-export function applyCorrections(text, rules, { onHit } = {})  // → string
+export function applyCorrections(text, rules, { onHit } = {})  // → string; onHit(rule, matchedText, writtenText)
 export function safeApply(text, rules, onHit)  // applyCorrections, or text unchanged on any throw
 export function relevantRules(text, rules, max = MAX_PROMPT_RULES)
 export function vocabularyTerms(rules, { maxTerms, maxChars } = {})
@@ -112,16 +111,20 @@ change that only touches whitespace produces no hunk.
 const WORD = /[\p{L}\p{N}][\p{L}\p{M}\p{N}]*(?:['".&/+\-־][\p{L}\p{N}][\p{L}\p{M}\p{N}]*)*/gu;
 ```
 
-The joiners are a superset of the punctuation `LATIN_TERM` accepts in
-`englishTerms.js`. They add `'` and `"` (after folding) and the maqaf `־`.
-So ג'ירה, מנכ"ל, בית־ספר, `follow-up` and `Node.js` each stay one token.
+Compared with the punctuation `LATIN_TERM` accepts inside a term in
+`englishTerms.js`, `WORD` adds `"` (after folding) and the maqaf `־`, and
+drops the space, because tokens never span whitespace. So ג'ירה, מנכ"ל,
+בית־ספר, `follow-up` and `Node.js` each stay one token.
 
 There is one post-split. If a word starts with 1–2 `PREFIXES` letters and
 then, optionally after `-` or `־`, continues with a Latin letter or a digit,
 it splits into the prefix, the hyphen (if any) and the rest. For example,
 `ה-jira` becomes `ה` `-` `jira`, `לjira` becomes `ל` `jira`, `מהbackend`
 becomes `מה` `backend`, and `ב-7` becomes `ב` `-` `7`. So the edit
-`ה-jira` → `ה-Jira` produces the hunk `jira` → `Jira` (`'en'`).
+`ה-jira` → `ה-Jira` produces the hunk `jira` → `Jira` (`'en'`). Tokens
+produced this way carry a `prefix: true` flag. Capture uses the flag
+(below), and the post-split also applies to Hebrew → Latin, so
+`בג'ירה` → `ב-Jira` gives the hunk `[בג'ירה]` → `[ב, -, Jira]`.
 
 **Diff.** Word-level LCS, with no dependencies. Trim the common
 prefix/suffix tokens, fill a `Uint16Array` table over the middle (up to
@@ -136,25 +139,48 @@ it and it would add a second algorithm.
 
 **Candidate filters.** A hunk must pass all of these, in order.
 
+0. **Detach split prefixes.** If a side starts with a `prefix: true`
+   token (1–2 `PREFIXES` letters from the post-split), optionally followed
+   by `-` or `־`, remove those tokens and record them as that side's
+   *prefix* for step 3. `[ב, -, Jira]` becomes `[Jira]` with prefix `ב`.
+   Without this step, step 1 would drop the hunk because of the
+   punctuation inside it. Transliterated product names, which
+   `englishTerms.js` deliberately leaves in Hebrew, are then learnable in
+   their most common written form: ב-/ה-/ל- plus the noun.
 1. **Substitution only.** After trimming edge punctuation tokens, both
    sides hold 1–3 word tokens and no punctuation inside. This drops
    insertion-only and deletion-only hunks (content edits) and
    punctuation-only ones (`,` → `.` would fire in every sentence).
 2. **No numbers.** Drop the hunk if either side contains any `\p{N}`:
    `ב-7` → `ב-19`, `21/10` → `22/10` and `2.5` → `4.5` are content.
-3. **Hebrew prefixes** (first token of each side). A side's *stem* is the
-   side with its prefix letters removed, measured in Hebrew letters across
-   all its tokens.
-   - If `stripPrefixes(from)` and `stripPrefixes(to)` intersect, the
-     change was only the prefix (רעננה → ברעננה is grammar), so drop it.
-   - If both sides share 1–2 prefix letters, strip them only when **both**
-     stems keep ≥ 4 Hebrew letters; otherwise store the full forms. So
-     ברג → ברק stays whole (הרג is never turned into הרק), מיכל → מיכאל
-     stays whole (בהיכל is untouched), and לנתב"ג → לבן גוריון is stored
-     as נתב"ג → בן גוריון.
-   - If the prefixes differ (ברענה → לרעננה), strip both under the same
-     ≥ 4 rule (רענה → רעננה), else drop the hunk. A ב → ל change must not
-     become a rule.
+3. **Hebrew prefixes.** Applied to the first token of each side, plus any
+   prefix detached in step 0. A side's *prefix* is its detached prefix,
+   or else its leading `PREFIXES` letters as described below. Its *stem*
+   is the side without that prefix. The **from stem** is measured in
+   Hebrew letters across all of its tokens. The ≥ 4 threshold applies to
+   the from stem only, because the from stem is what decides what the
+   rule can match later. The **to stem** only has to be non-empty, in any
+   script.
+   - **Prefix-only.** If one full form is in the other's `stripPrefixes`
+     set (רעננה → ברעננה, or the reverse), drop the hunk. A shared stem is
+     not enough: מושה → משה share only שה and are **kept**, stored whole
+     because the from stem ושה has 3 letters.
+   - **Shared prefix.** If both sides start with the same 1–2 prefix
+     letters, or the same detached prefix, strip them when the from stem
+     has ≥ 4 Hebrew letters. Otherwise store the full forms.
+     - ברג → ברק stays whole, so הרג is never turned into הרק.
+     - מיכל → מיכאל stays whole, so בהיכל is untouched.
+     - לנתב"ג → לבן גוריון is stored as נתב"ג → בן גוריון.
+     - בג'ירה → ב-Jira (step 0) is stored as ג'ירה → Jira and later
+       turns בג'ירה into בJira, as `applyEnglishTerms` would.
+   - **Differing or one-sided prefix.** The prefixes differ, or only one
+     side has one. A missing prefix counts as an empty prefix that
+     differs. Examples: ברענה → לרעננה, ברענה → רעננה, רענה → ברעננה.
+     In this case each side's prefix is its first letter if that letter
+     is in `PREFIXES`, or else nothing. Strip under the same from-stem
+     ≥ 4 rule (all three examples are stored as רענה → רעננה). Otherwise
+     drop the hunk. Without this, a rule could change ב to ל, or add or
+     delete a ב, in every future note.
 
    The matcher's optional prefix covers the other prefixes later. The chip
    shows exactly what will be stored.
@@ -170,27 +196,34 @@ it and it would add a second algorithm.
    - both sides are already normalised (`normalizeRuleString(x) === x`);
    - each side has 1–3 tokens and no `\p{N}`;
    - `language === ruleLanguage(from)`;
-   - `from !== to`, and the change is not prefix-only;
+   - `from !== to`, and the change is not prefix-only (as defined in
+     filter 3);
    - a single-token `from` has ≥ 3 letters (`\p{L}` code points; marks
      and joiners don't count);
    - no element of `stripPrefixes(from)` is in `STOPWORDS` (about 40
      Hebrew and 40 English function words: של, את, על, זה, אם, the, and,
      to, …);
-   - the rule passes the idempotence invariant against itself.
+   - `checkRuleSet([rule])` passes, so the rule is consistent with
+     itself.
 7. **Inconsistent edit.** If `from` still matches in the edited text
    (same matcher as `applyCorrections`), drop the hunk.
 8. **Already known.** Drop the hunk if `(language, from, to)` already
    exists. A same-`from` candidate is kept, and saving it replaces the old
    rule. The rule-set invariant is checked at save time, and a conflict is
    shown then (§5).
-9. **Name context.** When a 1-token hunk has an unchanged neighbouring
-   word, also offer a two-word sibling (word before, else word after). So
-   דני כהן → דני כהנא offers both כהן → כהנא and דני כהן → דני כהנא. The
+9. **Name context.** When a 1-token hunk has a neighbouring unchanged
+   word that is separated from it by whitespace only, is not a stopword,
+   has ≥ 2 letters and is not a lone prefix token, also offer a two-word
+   sibling (word before, else word after). So דני כהן → דני כהנא offers
+   both כהן → כהנא and דני כהן → דני כהנא. If no neighbour qualifies,
+   there is no sibling, so junk siblings never fill the 3 chip slots. The
    siblings share a `group`, so tapping one removes the other, and the
    sibling must also pass filters 6–8.
 
-`mergeCandidates(found, pending, dismissed)` puts new candidates first,
-dedupes on `(language, from, to)` and drops the note's `dismissed` keys.
+`mergeCandidates(found, pending, dismissed)` keeps `pending` in its
+current order and **appends** new candidates after it. It dedupes on
+`(language, from, to)` and drops the note's `dismissed` keys. Appending
+keeps the visible chips in place while new ones arrive (§5).
 
 **`normalizeRuleString(s)`** applies `fold`, NFC and trim, then returns
 `null` unless all of these hold:
@@ -212,7 +245,7 @@ letter, otherwise `'en'`. It does not use the note's `detectLanguage`,
 because Hebrew notes carry English terms.
 
 **Matcher (`applyCorrections`).** This is a token-stream matcher rather
-than the combined regex in the brief. Capture and application then share
+than a combined regex. Capture and application then share
 one tokenizer, so boundaries are identical by construction:
 `jira.company.com`, `Dan-Cohen` and `ג'דן` are single tokens and never
 match `jira`, `Dan` or `דן`. Folding is the same in both places. No regex
@@ -230,39 +263,75 @@ is ever built from rule strings.
    - For a multi-token rule, each following token must equal the rule's
      next folded token, with only whitespace in between.
 3. **Splice into the original text.** Write the prefix as written, then
-   `rule.to` (first letter capitalised for a sentence-initial
-   capitalised match), then the possessive suffix as written.
+   `rule.to`, then the possessive suffix as written.
+   - For a sentence-initial capitalised match, `rule.to` is passed
+     through `capitalizeFor(to)`. That uppercases the first letter
+     *unless* `to` already has a capital after its first character, so
+     `iphone` → `iPhone` never produces `IPhone`.
    - The cursor moves past the match, so output is never rescanned.
-   - `onHit(rule)` fires once per match, found by a `Map` lookup on the
-     folded key.
+   - `onHit(rule, matchedText, writtenText)` fires once per match, via a
+     `Map` lookup on the folded key, **unless the written text equals the
+     matched text**. A sentence-start `Jira` with the rule `jira` → `Jira`
+     writes identical text and is not counted.
 
 `safeApply(text, rules, onHit)` returns its input unchanged on any throw,
 mirroring `restoreEnglishTerms` (`englishTerms.js` lines 82–93).
 
-**Idempotence invariant.** `checkRuleSet` enforces this across the
-whole set and both languages, including each rule against itself:
+**Idempotence invariant (operational).** `checkRuleSet` is defined in
+terms of the matcher itself, so it can never drift from the matcher.
+It builds the matcher's index from the whole rule set. Then, for every
+rule R, it considers every **output form** of `R.to` that a splice can
+write, built as `p + c(R.to) + s`, where:
 
-> No word token of any rule's `to` may match any word token of any rule's
-> `from`. Two tokens match when, after `fold`, their `stripPrefixes` sets
-> intersect, or when they are equal once a trailing `'s` is removed.
-> Because an all-lowercase Latin `from` token also matches its capitalised
-> form, `to` tokens are compared with that form too. The only exception is
-> a rule whose `to` is exactly the capitalised `from` (`jira` → `Jira`).
+- `p` is empty, or 1–2 `PREFIXES` letters optionally followed by `-` or
+  `־`;
+- `c` is either "unchanged" or `capitalizeFor`;
+- `s` is empty or `'s`.
 
-This rejects all of the confirmed counterexamples to the earlier
-substring check:
+It tokenizes each form and asks the scanner's own test, with sentence
+start both on and off:
+
+- **first token of a `from`:** does any word token of the form produce a
+  key (unchanged, prefix-stripped under the ≥ 4 rule, `'s`-stripped, or
+  capitalised-index) that matches the first token of **any** rule's
+  `from`?
+- **later tokens of a `from`:** is any word token of the form equal
+  (folded) to any later token of any rule's `from`?
+
+The set is valid iff every answer is no, with one exception. A rule may
+match **its own** `to` only in the degenerate case where the whole of
+`R.from` matches the whole form and the splice would write identical
+text. That is the `jira` → `Jira` self-map: a sentence-start `Jira`
+becomes `capitalizeFor('Jira')` = `Jira`. The exception covers only R's
+own to-against-from pair. `R.to` is still checked against every other
+rule's `from`, and against its own `from` in every other form.
+
+It rejects all the confirmed counterexamples:
 - `New` → `York` with `York City` → `NYC`;
-- `ג'ירה` → `Jira` with `Jira board` → `Jira Board` (across the pass
-  order);
-- `דן` → `רן` with `ורן` → `…` (a glued prefix);
+- `ג'ירה` → `Jira` with `Jira board` → `Jira Board`;
+- `דן` → `רן` with `ורן` → `…` (glued prefix);
 - `שמש` → `שאן` with `בית שאן` → `בית-שאן` (across a token boundary);
-- `Dan` → `Dan Cohen` (a rule against itself).
+- `Dan` → `Dan Cohen` (itself);
+- `nodejs` → `node.js` with `Node.js` → `NodeJS`. The capitalised output
+  `Node.js` matches. Without this check, "Nodejs is fine." would become
+  "Node.js is fine." and then "NodeJS is fine.".
+- `jira` → `Jira` with `Jira board` → `Jira-Board`. The exception does not
+  cover another rule's `from`.
 
-With this invariant and single-pass scanning, `apply(apply(t)) ===
-apply(t)`. Every token a pass inserts is a `to` token, which cannot start
-or continue a match. Every other token, and its sentence-initial status,
-is unchanged. This is what makes the post-cleanup pass safe. The same
-check gates saving (§3), import (T5) and every read from storage.
+Because it uses the matcher's own test, it is **not stricter than the
+matcher**. A Hebrew `from` with fewer than 4 letters never matches a
+prefixed token, so `שרן` → `שרון` alongside `רון` → `רונן` is **accepted**.
+The ש in שרון is not a strippable prefix for the 3-letter `רון`.
+
+**Why this gives idempotence.** Any match in a second pass must involve
+at least one token the first pass inserted. A match made only of untouched
+tokens would already have matched in the first pass: the same tokens, the
+same adjacency and the same sentence-start status, because an inserted
+`to` ends in a letter, never in `.` `!` or `?`. Every possible
+participation of an inserted token is one of the cases checked above. The
+only allowed one writes identical text. So `apply(apply(t)) ===
+apply(t)`, which is what makes the post-cleanup pass safe. The same check
+gates saving (§3), import (T5) and every read from storage.
 
 **`relevantRules(text, rules, max)`** returns the rules whose `from` or
 `to` matches in `text` (same matcher), sorted by `count` then
@@ -277,7 +346,7 @@ and not in `STOPWORDS`. Order is by `count`, then `lastUsedAt`, cut at
 ### 2. `src/secureStore.js` (new): one encrypted JSON value per slot
 
 ```js
-export class SecureStoreError extends Error { /* code: 'unavailable' | 'unreadable' | 'blocked' */ }
+export class SecureStoreError extends Error { /* code: 'unavailable' | 'unreadable' | 'unsupported' | 'blocked' */ }
 export function openSecureStore(slot, { backend, subtle, randomBytes } = {})
   // → { get(): Promise<any|null>, set(value): Promise<void>, clear(): Promise<void> }
 export function indexedDbBackend(dbName)       // lazy: touches indexedDB only on first call
@@ -312,8 +381,10 @@ own key.
 - `clear()` closes its own connection, then calls `deleteDatabase`. If
   `onblocked` fires and the delete has not finished within 3 s, it rejects
   with `SecureStoreError('blocked')`, and Settings says "Close other Voice
-  Note tabs and try again". A `CryptoKey` is never reused across a
-  `clear()`.
+  Note tabs and try again". The pending delete request still completes
+  once the other connection closes. Its later `onsuccess` fires the
+  backend's change callback, so Settings refreshes then. A `CryptoKey` is
+  never reused across a `clear()`.
 - A missing key is created and stored with `IDBObjectStore.add`. On
   `ConstraintError`, another tab won the race, so the store re-reads the
   key. `generateKey` is async and cannot run inside the IndexedDB
@@ -321,7 +392,12 @@ own key.
 
 **Reads.**
 - No record → `null`.
-- A missing key, a failed decryption (tampering, corruption, wrong AAD) or
+- A record whose `v` is newer than this code understands →
+  `SecureStoreError('unsupported')`. It is checked before decryption,
+  because the AAD would not match anyway.
+- A missing key, a key that fails to deserialise (for example, WebKit's
+  Keychain master key is gone after a device restore, so reading `'key'`
+  throws), a failed decryption (tampering, corruption, wrong AAD) or
   invalid JSON → `SecureStoreError('unreadable')`. There is never a retry
   with another key and never a plaintext fallback.
 - Error messages never include record contents.
@@ -347,16 +423,25 @@ own key.
 ### 3. `src/correctionsStore.js` (new)
 
 ```js
-export function createCorrectionsStore({ store, today = () => new Date().toISOString().slice(0, 10) })
+export function createCorrectionsStore({
+  store,                                   // an openSecureStore(...) instance
+  today = () => new Date().toISOString().slice(0, 10),
+  subtle, randomBytes,                     // Phase 2: passed to seal/openWithPassphrase
+  channel = typeof BroadcastChannel === 'function'
+    ? new BroadcastChannel('transcriber-corrections') : null,   // injectable; null in tests
+})
 export function correctionsStore()   // lazily created default over openSecureStore('corrections')
 // instance:
-//   loadState()                      → { rules, unavailable, unreadable, dropped }
-//   saveRule({ from, to, language }) → { rules, evicted, replaced }  | throws RuleConflictError
+//   loadState()                      → { rules, unavailable, unreadable, unsupported, dropped }
+//   saveRule({ from, to, language }, { confirmReset } = {})
+//                                    → { rules, evicted, replaced }  | throws RuleConflictError, StoreResetRequired
 //   deleteRule({ from, language })   → rules
 //   recordHits(rules)                → void (fire-and-forget; errors swallowed)
 //   clearAll()                       → void
+//   onChange(cb)                     → unsubscribe; cb() after any write here or in another tab
 //   exportFixes(passphrase)          → File                       (Phase 2)
-//   importFixes(file, passphrase)    → { added: rule[], updated, skipped: [{ rule, reason }] }  (Phase 2)
+//   importFixes(file, passphrase, { confirmReset } = {})
+//                                    → { added: rule[], updated, skipped: [{ rule, reason }] }  (Phase 2)
 ```
 
 **Document shape (v1):**
@@ -381,13 +466,24 @@ export function correctionsStore()   // lazily created default over openSecureSt
   undone by this tab writing a stale document back.
 - **`recordHits`** touches only rules still present in the freshly read
   document. On an empty or unreadable store it does nothing.
-- **Cross-tab notice.** After each write, a `BroadcastChannel` named
-  `transcriber-corrections` posts `'changed'`, and other tabs refresh the
-  Settings list and `noteRules`.
+- **Change notices.** **Every** successful write posts `'changed'` on
+  `channel`: `saveRule`, `deleteRule`, `recordHits`, `clearAll` and
+  `importFixes`. So does a deferred `deleteDatabase` that completes after
+  a `'blocked'` rejection.
+  - `onChange(cb)` calls `cb` for those messages from other tabs and for
+    this instance's own writes. `app.js` uses it to refresh the Settings
+    list and the live `noteRules` (§5).
+  - With `channel: null` (tests, or browsers without `BroadcastChannel`),
+    only same-instance writes notify.
 - **Every read is validated** with `validateDocument(doc, { mode: 'stored'
   })`. GCM proves the app wrote the record, not that an older or buggy
   version wrote valid data.
-  - A structural failure is treated as `unreadable`.
+  - A document whose `v` is newer than 1, or with unknown top-level keys,
+    is `unsupported`. A newer client or another tab wrote it, so it is
+    reported and **never auto-cleared**. While it is `unsupported`,
+    nothing is written and the chips are hidden. An older client, another
+    tab or stale service-worker code must not wipe a newer record.
+  - Any other structural failure is `unreadable`.
   - Rules that fail `isLearnableRule` are dropped.
   - For each pair that breaks the invariant, the lower-`count` rule is
     dropped.
@@ -406,8 +502,11 @@ export function correctionsStore()   // lazily created default over openSecureSt
   - At `MAX_RULES`, the rule with the oldest `lastUsedAt` (lowest `count`
     on ties) is evicted and returned as `evicted`.
 - **Unreadable store.** If the store is `unreadable`, `saveRule` and
-  `importFixes` call `clear()` first; the old data is unrecoverable on
-  this device anyway.
+  `importFixes` throw `StoreResetRequired` unless `{ confirmReset: true }`
+  is passed. The UI asks first (§5), and only then calls `clear()` and
+  writes. The data cannot be recovered on this device either way, but the
+  user decides when it is discarded. `unsupported` is never cleared this
+  way.
 - **Lookups keyed by rule strings** use `Map`, `Set` or
   `Object.create(null)`. A parsed object is never `Object.assign`ed into
   app objects.
@@ -462,7 +561,7 @@ function commitEdits({ learn = true } = {}) {
 
 `learnActive()` is `getLearningEnabled() && learnAvailable`.
 `learnAvailable` is set to `false` when `loadState()` reports
-`unavailable`. After a commit the baseline equals the textarea, so the next
+`unavailable` or `unsupported`. After a commit the baseline equals the textarea, so the next
 commit only sees new edits and nothing is counted twice. In Phase 0 the
 `learn` branch does not exist.
 
@@ -475,20 +574,22 @@ commit only sees new edits and nothing is counted twice. In Phase 0 the
 | Refine | `commitEdits()` first, before lines 407–408 | chips are generated for the edited text |
 | Refine chip | `commitEdits()` before the `render()` at line 435 | `applyRefinement` reads the committed text (438); `REFINE_OK` moves the baseline |
 | Textarea `change` | `commitEdits()` | fires on blur and on keyboard Done on iOS, so chips can appear before the user leaves for WhatsApp |
-| "Always fix" chip | `commitEdits()` before `saveRule` | an edit made after the chips appeared survives the tap |
+| "Always fix" chip | the chip's click handler calls `commitEdits()`, then `saveRule` | `#learn-chips` calls `preventDefault()` on `pointerdown`, so tapping a chip doesn't blur the textarea: no `change`, no re-render between pointerdown and click. An edit made after the chips appeared survives the tap |
 | Retry cleanup | `commitEdits({ learn: false })` before `CLEANUP_RETRY` | `CLEANUP_RETRY` leaves `result`, which clears the candidates, so any found here would vanish unseen |
 | New | none | `RESET` drops untapped candidates; they are never stored |
 
 **Module-level UI state** (outside the reducer, like the refine overlay
-state at lines 33–38). All of it is cleared when leaving `result`, except
-`noteRules`, which is reloaded for each note.
+state at lines 33–38). Everything except `noteRules` and `notePassRules`
+is cleared when leaving `result`. Those two are set per note.
 
 ```js
-let learnCandidates = [];      // unconfirmed, newest first; never persisted
+let learnCandidates = [];      // unconfirmed, in arrival order (new ones appended); never persisted
 let dismissedKeys = new Set(); // dismissed this note only
-let noteRules = [];            // rules for the note on screen ([] when Learning is off)
-let appliedRules = new Map();  // ruleKey → rule, from onHit in both passes
-let recordedMs = 0;            // set from the recorder's onTick (line 287)
+let noteRules = [];            // live rule list: capture filters, chips; refreshed by onChange
+let notePassRules = [];        // frozen per-note snapshot used by BOTH passes, incl. Retry cleanup
+let appliedRules = new Map();  // ruleKey → { rule, seen: Map<matchedText, writtenText> }
+let recordedMs = 0;            // Phase 2: set from onTick (line 287), reset to 0 on RECORD_START
+let shownChipKeys = '';        // keys of the chips currently in the DOM
 let learnAvailable = true;
 ```
 
@@ -497,23 +598,34 @@ let learnAvailable = true;
 - **Placement.** `#learn-chips` sits *below* Copy and `#copy-error`, so a
   chip never appears where a button just was. Taps are ignored for 400 ms
   after the set of shown chips changes.
-- **Render.** At most 3 chips, built in `render()`'s `result` branch with
+- **Render.** The chips are the first 3 of `learnCandidates`. The row is
+  rebuilt only when the joined keys differ from `shownChipKeys`. New
+  candidates are appended after the visible ones (`mergeCandidates`), so
+  an ordinary render, or a new candidate arriving, never moves or
+  recreates a chip the user is about to tap. The build uses
   `replaceChildren` and `createElement`, like the refine chips (lines
-  203–212). Each is a `button.refine-chip.learn-chip` whose `textContent`
-  reads "Always fix: ", then `<bdi>from</bdi> → <bdi>to</bdi>` (the
-  `<bdi>` keeps mixed Hebrew/Latin from reordering the arrow), plus a ×
-  button (`aria-label="Don't offer this"`) that adds the candidate to
-  `dismissedKeys`.
-- **Tap.** Run `commitEdits()`, then `saveRule`. Update `noteRules` and
-  remove the chip and its `group` siblings. `#learn-status` shows "Saved —
-  future notes will use ‘to’" with **Undo** for 5 s; Undo deletes the
-  rule or restores `replaced`. An `evicted` rule is named. A
-  `RuleConflictError` shows its message with a "Delete ‘X → Y’ and save"
-  button.
-- **Applied hint.** `#learn-applied` lists the rules that fired on this
-  note ("Learned fixes applied: X → Y"), each with a × that calls
-  `deleteRule`. Deleting a rule doesn't undo this note's replacement; the
-  user edits it. A wrong rule is never invisible.
+  203–212). Each chip is a `button.refine-chip.learn-chip` with:
+  - `textContent` "Always fix: ", then `<bdi>from</bdi> → <bdi>to</bdi>`;
+    the `<bdi>` keeps mixed Hebrew/Latin from reordering the arrow;
+  - a × button (`aria-label="Don't offer this"`) that adds the candidate
+    to `dismissedKeys`.
+- **Tap.** Run `commitEdits()`, then `saveRule`. Update `noteRules` (not
+  `notePassRules`) and remove the chip and its `group` siblings.
+  - `#learn-status` shows "Saved — future notes will use ‘to’" with
+    **Undo** for 5 s. Undo deletes the rule or restores `replaced`. An
+    `evicted` rule is named.
+  - A `RuleConflictError` shows its message with a "Delete ‘X → Y’ and
+    save" button.
+  - A `StoreResetRequired` asks via `confirm()`: "Learned fixes on this
+    device can't be read. Start a new list? The unreadable one will be
+    deleted." Only on yes does it retry with `{ confirmReset: true }`.
+- **Applied hint.** `#learn-applied` lists what fired on this note **as
+  it appeared in the text**, built from `onHit`'s `matchedText` and
+  `writtenText`. For example, "Learned fixes applied: לעבור → לבשביל". A
+  collision with a real word is then obvious, and the × next to each
+  entry (it calls `deleteRule`) is the clear remedy. Deleting a rule
+  doesn't undo this note's replacement; the user edits it. A wrong rule is
+  never invisible.
 - **One-time notice (Phase 2).** The first time learned data is sent,
   `#learn-status` says "Learned fixes are now sent with your notes to your
   transcription and cleanup providers — turn off in Settings". The
@@ -524,33 +636,43 @@ let learnAvailable = true;
 ```js
 noteCost = { cleanup: null, refine: null };
 appliedRules = new Map();
-noteRules = learnActive() ? await loadRulesForNote() : [];   // Promise.race with 1.5 s → []; never throws
+const rules = learnActive() ? await loadRulesForNote() : [];   // Promise.race with 1.5 s → []; never throws
+notePassRules = rules;                                         // frozen for this note's two passes
+noteRules = rules;
+const onHit = (r, seen, wrote) => noteApplied(appliedRules, r, seen, wrote);   // adds to appliedRules[ruleKey(r)].seen
 try {
-  const vocabulary = recordedMs >= 2000 ? vocabularyTerms(noteRules) : [];   // Phase 2
+  const vocabulary = recordedMs >= 2000 ? vocabularyTerms(rules) : [];   // Phase 2
   const heard = await transcribe(state.audioBlob, getOpenAIKey(), { vocabulary });
-  const text = safeApply(heard, noteRules, (r) => appliedRules.set(ruleKey(r), r));
-  if (appliedRules.size) store.recordHits([...appliedRules.values()]);   // not awaited
+  const text = safeApply(heard, rules, onHit);
+  if (appliedRules.size) store.recordHits([...appliedRules.values()].map((a) => a.rule));   // not awaited
   dispatch({ type: 'TRANSCRIBE_OK', text, language: detectLanguage(text) });
-  runCleanup();
+  runCleanup(rules);
 } catch (err) { dispatch({ type: 'TRANSCRIBE_FAIL', message: err.message }); }
 ```
 
-The pre-pass runs here, not in `runCleanup`. The cleanup fallback (line
-265), Retry cleanup and `restoreEnglishTerms` then all receive the
-corrected text without extra code. One consequence: "Show raw transcript"
-shows the text after rules were applied. The applied hint says which rules
-those were.
+- **Why the pre-pass runs here.** Running it here rather than in
+  `runCleanup` means the cleanup fallback (line 265), Retry cleanup and
+  `restoreEnglishTerms` all receive the corrected text without extra code.
+  As a result, "Show raw transcript" shows the text after rules were
+  applied, and the applied hint says which.
+- **Rule snapshot.** `runCleanup(rules = notePassRules)` (lines 254–268)
+  uses the **same snapshot** for the post-pass, and Retry cleanup calls it
+  with no argument. A `'changed'` message, or a chip saved mid-note,
+  updates only `noteRules`, never `notePassRules`. Two rule sets that are
+  each valid on their own could chain into each other, so both passes of a
+  note always use one set. Rules saved during a note take effect from the
+  next note.
 
-In `runCleanup` (lines 254–268), only the `cleanup` call changes:
+Only the `cleanup` call changes:
 
 ```js
 const cleaned = await cleanup(withTerms, state.language,
-  { ...step, corrections: relevantRules(withTerms, noteRules) });   // Phase 2
-const text = safeApply(cleaned, noteRules, (r) => appliedRules.set(ruleKey(r), r));
+  { ...step, corrections: relevantRules(withTerms, rules) });   // Phase 2
+const text = safeApply(cleaned, rules, onHit);
 ```
 
-Post-pass hits are shown in the applied hint but not counted, because
-that would count the same occurrence twice. Because both passes use
+Post-pass hits are shown in the applied hint but not counted, because the
+same occurrence would be counted twice. Because both passes use
 `safeApply`, a bug in the matcher can never turn into `TRANSCRIBE_FAIL` or
 throw away a successful cleanup.
 
@@ -560,14 +682,25 @@ throw away a successful cleanup.
 - **`learning-toggle`** persists on `onchange`. Turning it off clears
   `learnCandidates` and `noteRules`. Turning it on mid-note loads
   `noteRules` immediately.
-- **Opening Settings.** `setSettingsOpen(true)` calls `refreshFixesList()`
-  (`loadState()`, then `createElement`). Rows are most recently used
-  first. Each row has `<bdi>from</bdi> → <bdi>to</bdi>`, a `×count` hint
-  and a delete button (`aria-label="Delete fix …"`). `#fixes-empty` shows
-  when the list is empty.
+- **Opening Settings.** `setSettingsOpen(true)` calls
+  `refreshFixesList()`:
+  - It first shows "Loading…" in `#fixes-status`, and hides
+    `#fixes-empty`.
+  - It then runs `loadState()` and rebuilds the list with `createElement`.
+    Rows are most recently used first. Each has `<bdi>from</bdi> →
+    <bdi>to</bdi>`, a `×count` hint and a delete button
+    (`aria-label="Delete fix …"`). `#fixes-empty` shows when the list is
+    empty.
+- **Cross-tab updates.** `store.onChange(...)` refreshes the list while
+  Settings is open, and replaces `noteRules`, but never `notePassRules`.
 - **`#fixes-status` messages:**
-  - *unreadable*: "Learned fixes on this device could not be read. Import
-    a backup to restore them; saving a new fix starts a fresh list."
+  - *unreadable*, Phase 1: "Learned fixes on this device could not be
+    read. Saving a new fix will ask to start a fresh list."
+  - *unreadable*, Phase 2: "… Import a backup to restore them, or save a
+    new fix to start a fresh list."
+  - *unsupported*: "Learned fixes were saved by a newer version of the
+    app. Reload to update. Nothing will be changed until then." Chips stay
+    hidden.
   - *unavailable*: "Learned fixes need browser storage, which is blocked
     here." Chips stay hidden.
   - *dropped > 0*: "N stored fixes were invalid and were ignored."
@@ -605,10 +738,15 @@ export async function transcribe(blob, apiKey, { vocabulary = [] } = {})
   and Hebrew is token-hungry.
 - **Echo guard.** Whisper-family models can echo the prompt on silent or
   very short audio. The caller sends no vocabulary for recordings under
-  2 s (§5). If the vocabulary was sent and the folded transcript consists
-  only of glossary terms and punctuation, `transcribe` retries once
-  without it. I chose a retry over dropping the result, so a silent clip
-  fails exactly as it does today.
+  2 s (§5). When the vocabulary was sent, `transcribe` retries once
+  without it if the folded transcript shows either sign of an echo:
+  - it consists only of glossary terms and punctuation;
+  - it contains **two or more consecutive glossary terms in prompt
+    order**, a partial echo such as "…דני, רעננה" glued onto real
+    speech.
+
+  I chose a retry over dropping the result, so a silent clip fails
+  exactly as it does today.
 - **Ship gate.** Before Phase 2 ships, A/B on real audio with and without
   the glossary: Hebrew notes, an English note (detection must not flip)
   and a near-silent clip.
@@ -645,8 +783,8 @@ CORRECTIONS>>>
 
 ### 8. `src/englishTerms.js`, `src/settings.js`, `src/styles.css`
 
-- **`englishTerms.js`** imports `PREFIXES`, `HEB` and `escape` from
-  `./hebrew.js` instead of defining them. No behaviour change.
+- **`englishTerms.js`** imports `PREFIXES` and `HEB` from `./hebrew.js`
+  instead of defining them, and keeps `escape`. No behaviour change.
 - **`settings.js`** adds two flags, following
   `getNoiseSuppressionEnabled` (lines 115–132):
   - `getLearningEnabled` / `setLearningEnabled`, key `learning_enabled`,
@@ -729,12 +867,17 @@ note are sent with it to your transcription and cleanup providers."
   live in unit tests, since one would make all-or-nothing validation
   reject the whole fixture. The repo is public, so the fixture is never a
   real export.
-- **README (Phase 1).**
-  - Architecture rows for `hebrew.js`, `corrections.js`,
-    `correctionsStore.js` and `secureStore.js`.
-  - A line in "What it does".
-  - A Notes bullet: learned fixes, like keys, are separate between Safari
-    and the installed app; move them with Export/Import.
+- **README.**
+  - **Phase 1:**
+    - add Architecture rows for `hebrew.js`, `corrections.js`,
+      `correctionsStore.js` and `secureStore.js`;
+    - correct the "No runtime dependencies" line, since
+      `@sapphi-red/web-noise-suppressor` is bundled;
+    - add a "What it does" line;
+    - add a Notes bullet: "Learned fixes, like API keys, are separate
+      between Safari and the installed app."
+  - **Phase 2:** extend that bullet with "— move them with Settings →
+    Learned fixes → Export / Import."
 
 ## Security
 
@@ -765,7 +908,10 @@ extension with page access, a compromised Netlify or GitHub account, or a
 tampered `@sapphi-red/web-noise-suppressor`. All of these can read the
 API keys too.
 
-The feature therefore adds no surface:
+The feature therefore adds **minimal new surface**. The new pieces are
+the import parser (T5), the `BroadcastChannel` listener, which only
+triggers a re-read and never carries data, and the share and download
+flow. Each is small and handles no markup.
 - The CSP stays `default-src 'self'` with no `script-src` exception. The
   feature needs no new hosts, no `'unsafe-eval'` and no WASM.
 - Learned strings reach the DOM only through `textContent` or
@@ -806,8 +952,9 @@ tools, and someone glancing at DevTools.
 - **Eviction.** Key and data share one database, so they are evicted
   together. Safari evicts script-writable storage after 7 days for sites
   in a tab, but not for Home Screen apps. A key without its data, or the
-  reverse, surfaces as `unreadable` with an offer to Import; it is never a
-  silent empty list.
+  reverse, surfaces as `unreadable`, and Phase 2 adds an offer to Import.
+  It is never a silent empty list. A record written by a newer version is
+  `unsupported` and is never cleared automatically (§3).
 - **iOS has separate stores.** The installed PWA and Safari have separate
   storage (as the README notes for keys), and Export/Import is the
   migration path.
@@ -895,8 +1042,11 @@ learned-fixes file, or wrong passphrase".
   construction.
 - Boundaries are exactly the tokenizer's.
 - The prefix is optional only for `from`s with ≥ 4 Hebrew letters.
-- A single pass plus the token-level invariant gives idempotence. The
-  invariant is checked at capture, save, import and at-rest read.
+- A single pass plus the operational invariant gives idempotence. The
+  invariant is defined through the matcher's own token test, so it cannot
+  drift from the matcher. It is checked at capture, save, import and
+  at-rest read.
+- Each note's two passes use one frozen rule snapshot (§5).
 - `MAX_RULES = 200` keeps the index small.
 - Wrong rules are limited by confirmation, the filters, the
   applied-fixes hint with per-rule delete, and the kill switch.
@@ -926,6 +1076,15 @@ learned-fixes file, or wrong passphrase".
 - Inflections and suffixes: a rule for רעננה does not match רעננאית, and
   `relevantRules` is literal, so that note doesn't send the rule either.
 - A memory-hard KDF.
+- **3-letter Hebrew names** (עדו → עידו) are fixed only in the exact form
+  learned. Each prefixed form (בעדו, לעדו) has to be learned separately.
+  This is a deliberate trade-off against collisions like לאור and באור
+  (§1).
+- Latin rules also match inside the local part of an email address
+  (`dan.cohen@…` is one token, so it is safe, but `dan@…` matches `dan`).
+- **Two word-boundary engines remain:** the regex in `englishTerms.js` and
+  the tokenizer here. Consolidating `applyEnglishTerms` onto the tokenizer
+  is a possible follow-up.
 - The pre-existing CSP and service-worker issues above.
 
 ## Future: sentence examples (separate spec)
@@ -940,8 +1099,9 @@ the document, which import requires to be empty.
 ## Testing
 
 **Adapters, not `fake-indexeddb`.** `openSecureStore` takes `backend`,
-`subtle` and `randomBytes`. `createCorrectionsStore` takes `store` and
-`today`.
+`subtle` and `randomBytes`. `createCorrectionsStore` takes `store`,
+`today`, `subtle`, `randomBytes` and `channel`; tests pass `channel:
+null`, or a pair of fake channels for the two-tab cases.
 - Tests use `tests/helpers/memoryBackend.js`, a `Map`-backed backend that
   never ships. It emulates `versionchange` and `blocked`, and two store
   instances can share one backend to stand in for two tabs.
@@ -961,11 +1121,20 @@ the document, which import requires to be empty.
     `לjira`, `מהbackend` and `ב-7` split.
   - **Diff:** two far-apart fixes in an 850-token note are both caught.
   - **Filters** (each example is from §1):
-    - kept: `ה-jira` → `jira` → `Jira`; מנכל → מנכ”ל; נתב"ג → בן גוריון;
-      the full forms ברג → ברק and מיכל → מיכאל;
-    - dropped: ברענה → לרענה, `ב-7` → `ב-19`, `2.5` → `4.5`,
-      prefix-only, a sentence-start case change, stopwords;
-    - `Jon's` → `John's`; the דני כהן sibling chip; `mergeCandidates`.
+    - kept: `ה-jira` gives `jira` → `Jira`; מנכל → מנכ”ל; נתב"ג → בן
+      גוריון; ברג → ברק and מיכל → מיכאל as full forms;
+    - kept: בג'ירה → ב-Jira and בג'ירה → בJira both give ג'ירה → Jira;
+      applying it then turns בג'ירה into בJira;
+    - kept: מושה → משה, stored whole;
+    - kept: ברענה → רעננה and רענה → ברעננה both give רענה → רעננה;
+    - dropped: ברענה → לרענה (from stem < 4), `ב-7` → `ב-19`, `2.5` →
+      `4.5`, prefix-only (רעננה → ברעננה), a sentence-start case change,
+      stopwords;
+    - `Jon's` → `John's`; the דני כהן sibling;
+    - no sibling when the neighbour is a stopword, a 1-letter word, a lone
+      prefix token or separated by punctuation;
+    - `mergeCandidates` appends new candidates after pending ones and
+      respects dismissals.
   - **`isLearnableRule`** rejects digits, Cyrillic `Jоhn`, U+034F, a
     variation selector, a leading mark, `<`, a newline, more than 64
     characters and a 2-letter `from`.
@@ -973,12 +1142,21 @@ the document, which import requires to be empty.
     - no match inside `ג'דן`, `jira.company.com`, `Dan-Cohen` or באגרטל;
     - a prefix only for 4+ letters (`אור` → `אורי` leaves `לאור` alone);
     - sentence-initial capitalisation, `'s` kept, smart quotes;
-    - one `onHit` per match.
-  - **Invariant:** each of the five §1 counterexamples is rejected;
-    `jira` → `Jira` is accepted.
-  - **Property test:** for random valid rule sets, strings concatenated
-    from `to`s and `from`s with spaces, punctuation and glued prefixes
-    satisfy `apply(apply(s)) === apply(s)`.
+    - `iphone` → `iPhone` at sentence start gives `iPhone`, not `IPhone`;
+    - one `onHit(rule, matched, written)` per match, and **none** when
+      the written text equals the matched text (`Jira` at sentence start
+      with `jira` → `Jira`).
+  - **Invariant:**
+    - rejected: all seven §1 counterexamples, including `nodejs` →
+      `node.js` + `Node.js` → `NodeJS`, and `jira` → `Jira` + `Jira board`
+      → `Jira-Board`;
+    - accepted: `jira` → `Jira` alone, and `שרן` → `שרון` with `רון` →
+      `רונן`.
+  - **Property test:** random valid rule sets, with a generator biased to
+    **lowercase Latin `from`s**. Test strings concatenate `to`s and
+    `from`s with spaces, punctuation and glued prefixes, and place them in
+    **sentence-initial positions** (start of text, after `. `, after a
+    newline). Assert `apply(apply(s)) === apply(s)`.
   - `safeApply` returns its input on a throw.
   - **`validateDocument`:**
     - `import` mode rejects `500` → `5000`, a one-letter `from`,
@@ -988,8 +1166,9 @@ the document, which import requires to be empty.
 - **`secureStore.test.js`** (node environment):
   - round trip; no plaintext in the record; fresh IVs; the key is
     non-extractable;
-  - flipped `ct` or `iv` bytes, a missing key, or the wrong slot's AAD →
-    `unreadable`; no backend → `unavailable`;
+  - flipped `ct` or `iv` bytes, a missing key, a key that throws on read,
+    or the wrong slot's AAD → `unreadable`; a record with `v: 2` →
+    `unsupported`; no backend → `unavailable`;
   - `clear()` closes its own connection first, and a blocked delete →
     `blocked` (fake timers); the `add` race reuses the key;
   - passphrase round trip, wrong passphrase, iteration bounds (injected),
@@ -999,6 +1178,14 @@ the document, which import requires to be empty.
     calls `recordHits` and `saveRule`; nothing deleted comes back. The
     same holds for a single delete.
   - Concurrent writes lose no update.
+  - `onChange` fires for `saveRule`, `deleteRule`, `recordHits`,
+    `clearAll` and `importFixes`, both in the same instance and through
+    the fake channel. It also fires for a deferred delete that completes
+    after a `blocked` rejection.
+  - `unsupported` (doc `v: 2`, or unknown keys) is never cleared:
+    `saveRule` with `confirmReset` still refuses.
+  - `unreadable` + `saveRule` throws `StoreResetRequired` without
+    `confirmReset`, and clears and saves with it.
   - `replaced` / `evicted` / `RuleConflictError` naming the rule.
   - `loadState` never throws.
   - Import over 256 KB is rejected unread; added rules are listed.
@@ -1021,7 +1208,11 @@ names survive cleanup, and unrelated names (the רעננה fixture) stay
 untouched.
 
 **Manual checks** on iOS Safari, the installed PWA and desktop Chrome:
-- **Edit after a chip appears, tap the chip: the edit survives.**
+- **Edit after a chip appears, tap the chip: the edit survives.** Also
+  with the textarea still focused and holding an uncommitted edit: the
+  tap saves the rule (the chip is not swallowed) and the edit survives.
+- While a chip is visible, another commit adds a candidate: the visible
+  chip stays where it is.
 - Copy and keyboard Done both show chips below Copy.
 - Refine keeps and uses edits.
 - Undo, × and the conflict action work.
@@ -1057,8 +1248,11 @@ Each phase ships independently and leaves the app consistent.
   yet: a list lost to eviction is easy to rebuild, and the loss is
   reported.
 - **Phase 2: model hints and portability.**
-  - The glossary, with its echo guard and A/B gate.
+  - The glossary, with its full and partial echo guard, the A/B gate, and
+    `recordedMs`.
   - The prompt section, with `relevantRules`.
   - The one-time notice and the `.sheet-note` sentence.
   - The passphrase envelope, Export/Import and the share button.
   - The `prompt-check` fixture.
+  - The Phase 2 wording of the unreadable message and of the README note
+    (Import).
