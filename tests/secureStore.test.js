@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { webcrypto } from 'node:crypto';
-import { openSecureStore, SecureStoreError } from '../src/secureStore.js';
+import { openSecureStore, SecureStoreError, sealWithPassphrase, openWithPassphrase } from '../src/secureStore.js';
 import { memoryBackend } from './helpers/memoryBackend.js';
 
 const subtle = webcrypto.subtle;
@@ -152,5 +152,55 @@ describe('key cache across a clear', () => {
     await store.set({ n: 2 });
     expect(backend.shared.map.has('key')).toBe(true);
     expect((await open(backend).get()).value).toEqual({ n: 2 });
+  });
+});
+
+describe('passphrase envelope', () => {
+  const fast = { subtle, iterations: 1000 };
+  const bounds = { subtle, minIterations: 1000, maxIterations: 5000 };
+
+  it('round-trips with the right passphrase', async () => {
+    const env = await sealWithPassphrase({ rules: ['כהן'] }, 'correct horse battery', fast);
+    expect(Object.keys(env).sort()).toEqual(['ct', 'format', 'iv', 'kdf', 'salt', 'v']);
+    expect(await openWithPassphrase(env, 'correct horse battery', bounds)).toEqual({ rules: ['כהן'] });
+  });
+
+  it('fails with the same error for a wrong passphrase and a tampered file', async () => {
+    const env = await sealWithPassphrase({ n: 1 }, 'correct horse battery', fast);
+    const wrong = await openWithPassphrase(env, 'wrong horse battery', bounds).catch((e) => e.message);
+    const ct = Buffer.from(env.ct, 'base64'); ct[0] ^= 1;
+    const tampered = await openWithPassphrase({ ...env, ct: ct.toString('base64') }, 'correct horse battery', bounds).catch((e) => e.message);
+    expect(wrong).toBe('Not a valid learned-fixes file, or wrong passphrase');
+    expect(tampered).toBe(wrong);
+  });
+
+  it('defaults to 600,000 iterations and refuses fewer', async () => {
+    const env = await sealWithPassphrase({ n: 1 }, 'correct horse battery', { subtle });
+    expect(env.kdf).toEqual({ name: 'PBKDF2', hash: 'SHA-256', iterations: 600000 });
+    const weak = await sealWithPassphrase({ n: 1 }, 'correct horse battery', fast);
+    await expect(openWithPassphrase(weak, 'correct horse battery', { subtle })).rejects.toThrow();
+  });
+
+  it('checks the iteration bounds before running the KDF', async () => {
+    const env = await sealWithPassphrase({ n: 1 }, 'pw-pw-pw-pw', fast);
+    const spy = { ...subtle, importKey: vi.fn(subtle.importKey.bind(subtle)), deriveKey: vi.fn(), decrypt: subtle.decrypt.bind(subtle) };
+    const huge = { ...env, kdf: { ...env.kdf, iterations: 1e9 } };
+    await expect(openWithPassphrase(huge, 'pw-pw-pw-pw', { subtle: spy })).rejects.toThrow();
+    expect(spy.deriveKey).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['an extra key', (e) => ({ ...e, extra: 1 })],
+    ['a wrong format', (e) => ({ ...e, format: 'other' })],
+    ['a wrong kdf', (e) => ({ ...e, kdf: { ...e.kdf, hash: 'SHA-1' } })],
+    ['an extra kdf key', (e) => ({ ...e, kdf: { ...e.kdf, salt: 'x' } })],
+    ['a short salt', (e) => ({ ...e, salt: 'AAAA' })],
+    ['a 16-byte IV', (e) => ({ ...e, iv: Buffer.alloc(16).toString('base64') })],
+    ['non-canonical base64', (e) => ({ ...e, iv: e.iv.replace(/=*$/, '') + '!' })],
+    ['a too-short ciphertext', (e) => ({ ...e, ct: Buffer.alloc(8).toString('base64') })],
+    ['not an object', () => 'nope'],
+  ])('rejects %s', async (_label, mutate) => {
+    const env = await sealWithPassphrase({ n: 1 }, 'pw-pw-pw-pw', fast);
+    await expect(openWithPassphrase(mutate(env), 'pw-pw-pw-pw', bounds)).rejects.toThrow('Not a valid learned-fixes file');
   });
 });

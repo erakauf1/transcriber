@@ -4,6 +4,7 @@ import {
   getAnthropicKey, setAnthropicKey, hasAnthropicKey,
   getNoiseSuppressionEnabled, setNoiseSuppressionEnabled,
   getLearningEnabled, setLearningEnabled, getLearningNoticeShown, setLearningNoticeShown,
+  getLearningGlossaryEnabled, setLearningGlossaryEnabled,
   getOpenRouterKey, setOpenRouterKey, hasOpenRouterKey,
   getCleanupProvider, setCleanupProvider,
   getRefineProvider, setRefineProvider,
@@ -176,9 +177,13 @@ describe('Refine Anthropic model', () => {
 describe('learned fixes flags', () => {
   beforeEach(() => localStorage.clear());
 
-  it('default to learning on and the notice not yet shown', () => {
+  it('default to learning on, the notice not yet shown, and the glossary off', () => {
     expect(getLearningEnabled()).toBe(true);
     expect(getLearningNoticeShown()).toBe(false);
+    expect(getLearningGlossaryEnabled()).toBe(false);
+    setLearningGlossaryEnabled(true);
+    expect(getLearningGlossaryEnabled()).toBe(true);
+    expect(localStorage.getItem('learning_glossary')).toBe('true');
   });
 
   it('persist', () => {

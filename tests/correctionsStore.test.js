@@ -2,16 +2,19 @@
 import { describe, it, expect, vi } from 'vitest';
 import { webcrypto } from 'node:crypto';
 import { openSecureStore } from '../src/secureStore.js';
-import { createCorrectionsStore, RuleConflictError, StoreResetRequired } from '../src/correctionsStore.js';
+import { createCorrectionsStore, RuleConflictError, StoreResetRequired, MAX_EXPORT_BYTES } from '../src/correctionsStore.js';
+import { sealWithPassphrase } from '../src/secureStore.js';
 import { ruleLanguage, MAX_RULES } from '../src/corrections.js';
 import { memoryBackend } from './helpers/memoryBackend.js';
 
 const subtle = webcrypto.subtle;
 const R = (from, to) => ({ from, to, language: ruleLanguage(from) });
 
+const FAST_KDF = { iterations: 1000, minIterations: 1000 };
+
 function setup({ backend = memoryBackend(), channel = null, locks = null, day = '2026-10-21' } = {}) {
   const secure = openSecureStore('corrections', { backend, subtle });
-  const store = createCorrectionsStore({ store: secure, channel, locks, today: () => day });
+  const store = createCorrectionsStore({ store: secure, channel, locks, today: () => day, subtle, passphrase: FAST_KDF });
   return { backend, secure, store };
 }
 
@@ -202,5 +205,95 @@ describe('saving an existing rule', () => {
     const again = await store.saveRule(R('jira', 'Jira'));
     expect(again.replaced).toBeNull();
     expect((await store.loadState()).rules[0].count).toBe(2);
+  });
+});
+
+describe('export / import', () => {
+  const PW = 'correct horse battery';
+  const full = (r, extra = {}) => ({ ...r, count: 1, createdAt: '2026-10-01', lastUsedAt: '2026-10-01', ...extra });
+  const fileOf = async (value, pw = PW) =>
+    new File([JSON.stringify(await sealWithPassphrase(value, pw, { subtle, iterations: 1000 }))], 'fixes.json');
+
+  it('exports an encrypted file named by date, which another device imports', async () => {
+    const a = setup();
+    await a.store.saveRule(R('כהן', 'כהנא'));
+    const file = await a.store.exportFixes(PW);
+    expect(file.name).toBe('voicenote-learned-fixes-2026-10-21.json');
+    expect(await file.text()).not.toContain('כהנא');
+    const b = setup();
+    const result = await b.store.importFixes(file, PW);
+    expect(result.added.map((r) => r.from)).toEqual(['כהן']);
+    expect((await b.store.loadState()).rules.map((r) => r.to)).toEqual(['כהנא']);
+  });
+
+  it('rejects a wrong passphrase with the generic message', async () => {
+    const a = setup();
+    await a.store.saveRule(R('כהן', 'כהנא'));
+    const file = await a.store.exportFixes(PW);
+    await expect(setup().store.importFixes(file, 'wrong passphrase')).rejects.toThrow('Not a valid learned-fixes file, or wrong passphrase');
+  });
+
+  it('rejects an oversized file without reading it', async () => {
+    const file = { size: MAX_EXPORT_BYTES + 1, text: vi.fn() };
+    await expect(setup().store.importFixes(file, PW)).rejects.toThrow('Not a valid learned-fixes file');
+    expect(file.text).not.toHaveBeenCalled();
+  });
+
+  it('rejects a file whose rules fail validation, all or nothing', async () => {
+    const file = await fileOf({ v: 1, rules: [full(R('jira', 'Jira')), full({ from: '500', to: '5000', language: 'en' })], examples: [] });
+    const { store } = setup();
+    await expect(store.importFixes(file, PW)).rejects.toThrow('Not a valid learned-fixes file');
+    expect((await store.loadState()).rules).toEqual([]);
+  });
+
+  it('merges: identical rules keep the higher count and later date; local wins conflicts', async () => {
+    const { store } = setup();
+    await store.saveRule(R('jira', 'Jira'));
+    await store.saveRule(R('York City', 'NYC'));
+    await store.saveRule(R('כהן', 'כהנא'));
+    const file = await fileOf({ v: 1, examples: [], rules: [
+      full(R('jira', 'Jira'), { count: 7, lastUsedAt: '2026-10-30' }),
+      full(R('כהן', 'כהן־כהנא')),
+      full(R('New', 'York')),
+      full(R('ann', 'Anna')),
+    ] });
+    const result = await store.importFixes(file, PW);
+    expect(result.added.map((r) => r.from)).toEqual(['ann']);
+    expect(result.updated).toBe(1);
+    expect(result.skipped.map((s) => s.rule.from).sort()).toEqual(['New', 'כהן']);
+    const rules = (await store.loadState()).rules;
+    expect(rules.find((r) => r.from === 'jira')).toMatchObject({ count: 7, lastUsedAt: '2026-10-30' });
+    expect(rules.find((r) => r.from === 'כהן').to).toBe('כהנא');
+  });
+
+  it('skips the least used imports when the list is full', async () => {
+    const { secure, store } = setup();
+    const local = distinctRules(MAX_RULES - 1).map((r) => full(r));
+    await secure.set({ v: 1, rules: local, examples: [] });
+    const file = await fileOf({ v: 1, examples: [], rules: [full(R('ann', 'Anna'), { count: 1 }), full(R('dan', 'Dan'), { count: 9 })] });
+    const result = await store.importFixes(file, PW);
+    expect(result.added.map((r) => r.from)).toEqual(['dan']);
+    expect(result.skipped).toEqual([{ rule: expect.objectContaining({ from: 'ann' }), reason: 'full' }]);
+  });
+
+  it('notifies after an import', async () => {
+    const { store } = setup();
+    const changed = vi.fn();
+    store.onChange(changed);
+    await store.importFixes(await fileOf({ v: 1, examples: [], rules: [full(R('ann', 'Anna'))] }), PW);
+    expect(changed).toHaveBeenCalledOnce();
+  });
+});
+
+describe('cancelled import', () => {
+  it('writes nothing once its signal is aborted', async () => {
+    const { store } = setup();
+    const full = { ...R('ann', 'Anna'), count: 1, createdAt: '2026-10-01', lastUsedAt: '2026-10-01' };
+    const env = await sealWithPassphrase({ v: 1, rules: [full], examples: [] }, 'correct horse battery', { subtle, iterations: 1000 });
+    const controller = new AbortController();
+    const pending = store.importFixes(new File([JSON.stringify(env)], 'f.json'), 'correct horse battery', { signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toThrow('Import cancelled');
+    expect((await store.loadState()).rules).toEqual([]);
   });
 });

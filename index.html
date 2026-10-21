@@ -212,18 +212,36 @@
             <input id="learning-toggle" type="checkbox" role="switch" />
             <span class="hint-tight">Offer to remember words you fix by hand</span>
           </div>
+          <div class="toggle-row">
+            <input id="glossary-toggle" type="checkbox" role="switch" aria-describedby="glossary-hint" />
+            <label for="glossary-toggle" class="hint-tight">Hint learned names to transcription (experimental)</label>
+          </div>
+          <p id="glossary-hint" class="hint hint-tight">Sends up to 20 learned name spellings to OpenAI with every recording of 2 seconds or longer. Off until tested on real audio.</p>
           <p id="fixes-status" class="hint hint-tight" hidden></p>
           <ul id="fixes-list" class="fixes-list"></ul>
           <p id="fixes-empty" class="hint hint-tight">No learned fixes yet</p>
           <div class="fixes-actions">
+            <button id="btn-fixes-export" class="btn btn-quiet" type="button">Export…</button>
+            <button id="btn-fixes-import" class="btn btn-quiet" type="button">Import…</button>
             <button id="btn-fixes-clear" class="btn btn-quiet" type="button">Clear all</button>
           </div>
+          <input id="fixes-import-file" type="file" accept=".json,application/json" hidden />
+          <div id="fixes-pass-row" class="fixes-pass-row" hidden>
+            <input id="fixes-pass" type="password" aria-label="Passphrase" placeholder="Passphrase (10+ characters)" />
+            <input id="fixes-pass-confirm" type="password" aria-label="Repeat passphrase" autocomplete="new-password" placeholder="Repeat passphrase" hidden />
+            <button id="btn-fixes-pass-go" class="btn btn-primary btn-block" type="button">Continue</button>
+            <button id="btn-fixes-pass-cancel" class="btn btn-ghost" type="button">Cancel</button>
+            <button id="btn-fixes-share" class="btn btn-primary btn-block" type="button" hidden>Share file</button>
+          </div>
+          <p id="fixes-transfer-status" class="hint hint-tight" hidden></p>
         </div>
         <p class="sheet-note">
           Voice Note records audio and transcribes it with gpt&#8209;4o&#8209;transcribe (OpenAI). Cleanup
           and Refine can each independently use OpenAI, Anthropic, or OpenRouter (including free/low-cost
           models) — pick per step above. Everything runs on your own API keys — nothing is stored except
-          in your browser.
+          in your browser. Learned fixes are stored encrypted on this device. While Learning is on, the
+          ones relevant to a note are sent with it to your cleanup provider, and to your transcription
+          provider if you turn on the name hint.
         </p>
       </div>
     </section>

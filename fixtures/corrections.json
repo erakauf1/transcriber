@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "rules": [
+    { "from": "מנדי", "to": "Monday", "language": "he", "count": 3, "createdAt": "2026-10-01", "lastUsedAt": "2026-10-20" },
+    { "from": "התיח", "to": "הטיח", "language": "he", "count": 2, "createdAt": "2026-10-05", "lastUsedAt": "2026-10-19" },
+    { "from": "Jon", "to": "John", "language": "en", "count": 1, "createdAt": "2026-10-10", "lastUsedAt": "2026-10-10" }
+  ],
+  "examples": []
+}

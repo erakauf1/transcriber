@@ -15,7 +15,7 @@ Cleanup and Refine each independently use OpenAI, Anthropic, or OpenRouter (whic
 
 Language is preserved automatically — Hebrew stays Hebrew, English stays English, and code-switched words stay in their original script.
 
-Learned fixes: when you fix the same misheard name or word by hand, the app offers to remember it ("Always fix: X → Y"). Once you confirm, later notes are corrected in code before and after cleanup, and the result screen shows which fixes were applied. Fixes are stored encrypted on this device; manage or turn them off in Settings.
+Learned fixes: when you fix the same misheard name or word by hand, the app offers to remember it ("Always fix: X → Y"). Once you confirm, later notes are corrected in code before and after cleanup, and the result screen shows which fixes were applied. Fixes are stored encrypted on this device; manage or turn them off in Settings. The ones relevant to a note are sent with it to the cleanup provider.
 
 ## Setup
 
@@ -39,6 +39,8 @@ npm install
 npm run dev       # local dev server
 npm test          # run tests
 npm run build     # production build → dist/
+ANTHROPIC_API_KEY=... npm run prompt-check                                     # eyeball cleanup on fixtures
+ANTHROPIC_API_KEY=... CORRECTIONS=fixtures/corrections.json npm run prompt-check  # …with learned fixes
 ```
 
 Deploy to Netlify:
@@ -74,4 +76,5 @@ One runtime dependency, `@sapphi-red/web-noise-suppressor` (bundled) — Vite fo
 - iOS Safari produces `audio/mp4` (AAC) — the transcription API accepts it
 - Clipboard write must be called synchronously inside a tap handler on iOS
 - The home-screen PWA and Safari have separate localStorage — enter your API key inside the installed app, not in Safari
-- Learned fixes, like API keys, are separate between Safari and the installed app
+- Learned fixes, like API keys, are separate between Safari and the installed app — move them with Settings → Learned fixes → Export / Import
+- The "Hint learned names to transcription" switch is off by default: the spec's ship gate (an A/B on real audio — two Hebrew notes, one English note, one near-silent clip) has not been run yet. Run it before turning the switch on by default
