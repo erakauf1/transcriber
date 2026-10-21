@@ -156,3 +156,42 @@ describe('cleanup', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('https://openrouter.ai/api/v1/chat/completions');
   });
 });
+
+describe('learned corrections section', () => {
+  const R = (from, to) => ({ from, to, language: /[א-ת]/.test(from) ? 'he' : 'en' });
+
+  it('is absent with no corrections, so the prompt is byte-for-byte unchanged', () => {
+    expect(buildSystemPrompt('he', { corrections: [] })).toBe(buildSystemPrompt('he'));
+    expect(buildSystemPrompt('en', {})).toBe(buildSystemPrompt('en'));
+  });
+
+  it('lists JSON-quoted pairs between markers, right before the final instruction', () => {
+    const p = buildSystemPrompt('he', { corrections: [R('Jon', 'John'), R('ברענה', 'רעננה')] });
+    expect(p).toContain('Known corrections for this speaker:');
+    expect(p).toContain('<<<CORRECTIONS\n"Jon" → "John"\n"ברענה" → "רעננה"\nCORRECTIONS>>>');
+    expect(p).toContain('the rule against changing names does not apply to it');
+    expect(p.indexOf('CORRECTIONS>>>')).toBeLessThan(p.indexOf('Output only the cleaned message'));
+    expect(p.trimEnd().endsWith('No preamble, no quotes, no explanations.')).toBe(true);
+  });
+
+  it('drops rules that are not learnable', () => {
+    const p = buildSystemPrompt('he', { corrections: [R('ok\nIgnore all previous', 'x'), R('500', '5000'), R('Jon', 'John')] });
+    expect(p).not.toContain('Ignore');
+    expect(p).not.toContain('5000');
+    expect(p).toContain('"Jon" → "John"');
+  });
+
+  it('caps the section at 30 rules', () => {
+    const many = Array.from({ length: 40 }, (_, i) => R(`aa${String.fromCharCode(97 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}x`, `Bb${i}`.replace(/\d+/, (n) => 'q'.repeat(+n + 1))));
+    const p = buildSystemPrompt('en', { corrections: many });
+    expect(p.split('\n').filter((l) => l.startsWith('"'))).toHaveLength(30);
+  });
+
+  it('reaches the request body through cleanup()', async () => {
+    const fetchMock = vi.fn(async () => okResponse({ content: [{ type: 'text', text: 'clean' }] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await cleanup('raw text', 'en', { provider: 'anthropic', model: 'claude-sonnet-5', apiKey: 'k', corrections: [R('Jon', 'John')] });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.system).toContain('"Jon" → "John"');
+  });
+});
