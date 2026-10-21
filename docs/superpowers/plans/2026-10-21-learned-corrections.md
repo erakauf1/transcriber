@@ -56,13 +56,27 @@ The spec leaves these open, or a literal reading conflicts with another section.
 
 1. **`count` granularity (§3, §5).** "1 on save, plus 1 per pre-pass hit", but `app.js` passes `recordHits` a list of *rules*, one per rule that fired. **(plan)** +1 per rule per note, however many occurrences. Then `count ≥ 2` in `vocabularyTerms` means "fired on at least one later note", which the spec intends.
 2. **Cross-tab lost updates (§3).** The write queue serialises writes within one tab. Two tabs writing at the same moment can still read-modify-write over each other. **(plan)** Wrap each read-modify-write in `navigator.locks.request('transcriber-corrections', …)` when `navigator.locks` exists, falling back to the in-tab queue. Small, no dependency, closes the gap; adds one test.
-3. **Possessive key with multi-token rules (§1 Matcher, step 2).** **(plan)** The `'s`-stripped key matches only *single-token* `from`s. With a multi-token `from` the `'s` sits between tokens and can never satisfy "only whitespace in between".
-4. **Gap between tokens of a multi-token `from`.** **(plan)** It must be one or more whitespace characters. An empty gap (post-split pieces such as `ב` + `Jira`) is not "whitespace in between", so `רון ב` never matches `רון בJira`.
+3. **Possessive key with multi-token rules (§1 Matcher, step 2).** `Jira's board` tokenizes as `Jira's`, `board`, so a literal reading lets the `'s`-stripped key start a match of `Jira board`. The splice ("`to`, then the suffix as written") would then write `Jira Board's` and move the possessive. **(plan)** The `'s`-stripped key matches only *single-token* `from`s. The analytic check and the oracle both go through `__scanner`, so they apply the same restriction.
+4. **Gap between tokens of a multi-token `from`.** **(plan)** It must be one or more whitespace characters. An empty gap between post-split pieces is not "whitespace in between", so the `from` `ב Jira` matches `ב Jira` but not `בJira`. (`רון ב` *does* match the start of `רון בJira`: the gap inside that `from` is a space. Spec §1(b) and counterexample 9 rely on that.)
 5. **Filter 7 and the self-map.** **(plan)** "`from` still matches in the edited text" means `applyCorrections(after, [rule]) !== after`. A sentence-start `Jira` in the edited text must not block learning `jira → Jira`, because that match writes identical text.
 6. **Test-only exports for the oracle.** The enumerated `checkRuleSet` oracle needs the matcher's own per-token key test. **(plan)** `corrections.js` exports `__scanner = { buildIndex, tokenMatchesFirst, tokenMatchesLater }` and documents it as test-only. The alternative, duplicating the predicate in the test, defeats the oracle.
 7. **Spec nit, filter 3.** The Testing section lists `ברענה → לרענה` as "dropped (from stem < 4)". The from stem `רענה` has 4 letters; the hunk is dropped because stripping leaves `from === to`. **(plan)** Assert that it is dropped, and name the right reason in the test.
-8. **`STOPWORDS` contents (§1 filter 6).** The spec gives a size (~40 + ~40) and examples, not a list. Task 4 proposes the list. Please review it, especially the Hebrew half.
-9. **WebKit `CryptoKey` wrapping (T2)** is unverified. Nothing in Phase 1 relies on it, but the README and the `.sheet-note` must not claim it. **(plan)** Task 13's README wording says "stored encrypted on this device" and nothing about backups.
+8. **`STOPWORDS` and prefix stems (§1 filter 6). This changes the spec.** Filter 6 rejects a rule if *any* element of `stripPrefixes(from)` is a stopword. With two-letter Hebrew stopwords, that blocks real names and words: `כהן` (stem `הן`), `ברק` (`רק`), `בעל` (`על`), `כלא` (`לא`), `השם` (`שם`). Yet the spec itself expects `כהן → כהנא` to be learnable. **(plan)**
+   - Check `from` itself against the whole list.
+   - Check its prefix-stripped stems only against stopwords of **3+ letters** (`ואני` and `ואבל` stay blocked).
+   - A 2-letter stem matters little anyway: a `from` under 4 letters never matches a prefixed form.
+
+   Task 4 also proposes the list itself (the spec gives only a size and examples). Please review the Hebrew half.
+9. **Siblings and the self-check (§1 filters 6 and 9). The spec contradicts itself here.** Read literally, the invariant tests each output token on its own. The self-exception covers only "the whole of `R.from` matches the whole form".
+    - So every filter 9 sibling is self-conflicting: `דני כהן → דני כהנא` writes `דני`, its own first token, and `כהן הגיע → כהנא הגיע` writes `הגיע`, its own later token.
+    - Filter 6 then rejects every sibling, and filter 9 is dead code.
+    - Neither can actually re-match, because the neighbouring token is fixed inside the form.
+
+    **(plan)** A hit on a multi-token `from` counts as a conflict only if that `from`'s other tokens agree with the form's own tokens wherever they overlap the form. Positions beyond either end of the form are unconstrained.
+    - `Dan → Dan Cohen` is still rejected.
+    - `Jira board → Jira Board` is no longer self-conflicting, so counterexample 2 tests the cross pair as intended.
+    - The rule is implemented once in `__scanner`, so the oracle and the analytic check share it.
+10. **WebKit `CryptoKey` wrapping (T2)** is unverified. Nothing in Phase 1 relies on it, but the README and the `.sheet-note` must not claim it. **(plan)** Task 13's README wording says "stored encrypted on this device" and nothing about backups.
 
 ---
 
@@ -397,7 +411,7 @@ export function tokenize(text) {
 
 `ruleLanguage(from)`: `/[א-ת]/.test(from) ? 'he' : 'en'`.
 
-`STOPWORDS` (proposal; see open question 8), as a `Set`:
+`STOPWORDS` (proposal; see open question 8), as a `Set`. `isLearnableRule` checks `from` against the whole set, and its prefix-stripped stems only against entries of 3+ letters. Add tests that `כהן`, `ברק`, `בעל` and `כלא` are learnable `from`s and `ואני` is not.
 
 ```
 he: של את על זה זו זאת אם כי גם לא כן אבל או עם אני אתה את הוא היא אנחנו אתם הם הן
@@ -414,9 +428,10 @@ en: the a an and or but to of in on at for with from by is are was were be been 
 
 **Interfaces:**
 - Produces: `capitalizeFor(to)`, `applyCorrections(text, rules, { onHit })`, `safeApply(text, rules, onHit)`, and (test-only) `__scanner = { buildIndex, tokenMatchesFirst, tokenMatchesLater }`.
-- `buildIndex(rules) → { first: Map<foldedKey, Entry[]>, later: Set<folded> }`, where `Entry = { rule, tokens: string[] /* folded from tokens */, sentenceOnly: boolean }` and each `Entry[]` is sorted by `tokens.length` descending.
+- `buildIndex(rules) → { first: Map<foldedKey, Entry[]>, later: Map<folded, Entry[]> }` (`later` lists the entries owning each later token, so the invariant can name the conflicting rule), where `Entry = { rule, tokens: string[] /* folded from tokens */, sentenceOnly: boolean }` and each `Entry[]` is sorted by `tokens.length` descending.
 - `tokenMatchesFirst(index, token, sentenceStart) → Entry[]` lists the entries whose first token this token's keys hit, with the ≥ 4-letter rule and `sentenceOnly` already applied. Each returned entry also carries `{ prefixLen, suffixLen }` for the splice.
-- `tokenMatchesLater(index, token) → boolean`.
+- `tokenMatchesLater(index, token) → Entry[]` (each with the token's position in that entry's `from`).
+- Both accept an optional `{ formTokens, position }` context. When it is given, an entry whose `from` contradicts the form's own tokens where they overlap is not returned (open question 9). `applyCorrections` never passes it.
 
 `applyCorrections` and the invariant checker (Task 6) both call these, so they cannot drift (spec §1 "defined in terms of the matcher itself").
 
@@ -491,7 +506,7 @@ describe('safeApply', () => {
 ### Task 6: `corrections.js` part 3: `checkRuleSet` (oracle first, then analytic)
 
 **Files:**
-- Create: `tests/helpers/ruleSetOracle.js` (test-only, never imported by `src/`)
+- Create: `tests/helpers/ruleSetOracle.js` and `tests/helpers/ruleGen.js` (test-only, never imported by `src/`); the test file imports `oracleCheck` and `randomRuleSets` from them
 - Modify: `src/corrections.js`, `tests/corrections.test.js`
 
 **Interfaces:**
@@ -520,13 +535,22 @@ const COUNTEREXAMPLES = [
 
 describe('checkRuleSet', () => {
   it.each(COUNTEREXAMPLES)('rejects counterexample %#', (...rules) => {
-    expect(checkRuleSet(rules).ok).toBe(false);
+    const r = checkRuleSet(rules);
+    expect(r.ok).toBe(false);
     expect(oracleCheck(rules).ok).toBe(false);
+    // Prove the cross-rule pair is what fails, not a self-conflict of one rule.
+    if (rules.length === 2) expect(r.conflicts).toContainEqual([rules[0], rules[1]]);
+    else expect(r.conflicts).toContainEqual([rules[0], rules[0]]);
+  });
+  it('lets the name-context sibling pass its own self-check (open question 9)', () => {
+    expect(checkRuleSet([R('דני כהן', 'דני כהנא')]).ok).toBe(true);
+    expect(checkRuleSet([R('כהן הגיע', 'כהנא הגיע')]).ok).toBe(true);
   });
   it('accepts the jira → Jira self-map', () => expect(checkRuleSet([R('jira', 'Jira')]).ok).toBe(true));
   it('is not stricter than the matcher: שרן → שרון with רון → רונן', () => {
     expect(checkRuleSet([R('שרן', 'שרון'), R('רון', 'רונן')]).ok).toBe(true);
   });
+  // Pairs are deduplicated across output forms (York and York's hit the same pair once).
   it('returns all conflicting pairs in one pass', () => {
     const r = checkRuleSet([R('New', 'York'), R('York City', 'NYC'), R('Dan', 'Dan Cohen')]);
     expect(r.conflicts).toHaveLength(2);
@@ -567,13 +591,13 @@ describe('checkRuleSet', () => {
 Most rows have an unchanged neighbour word, so filter 9 also offers a two-word sibling. The table compares only the **primary** candidate of each group, and the sibling rules get their own tests.
 
 ```js
-const primary = (before, after, rules = []) => {
+const cand = (before, after, rules = []) => {
   const seen = new Set();
   return extractCandidates(before, after, { rules })
     .filter(({ group }) => !seen.has(group) && seen.add(group))
     .map(({ from, to }) => `${from} → ${to}`);
 };
-const cand = primary;
+
 
 it.each([
   ['ה-jira עובד', 'ה-Jira עובד', ['jira → Jira']],
@@ -596,7 +620,9 @@ it.each([
   ['זה 2.5 שעות', 'זה 4.5 שעות', []],
   ['נסעתי רעננה', 'נסעתי ברעננה', []],              // prefix-only
   ['the plan. jira is fine', 'the plan. Jira is fine', []], // sentence-start case
-  ['של הבית', 'את הבית', []],                       // stopword
+  ['and then we go', 'and than we go', []],          // stopword (3+ letters, so not the length rule)
+  ['דיברתי עם כהן', 'דיברתי עם כהנא', ['כהן → כהנא']], // stem הן is not checked (open question 8)
+  ['ראיתי את ברג', 'ראיתי את ברק', ['ברג → ברק']],
   ["Jon's car", "John's car", ['Jon → John']],
 ])('%s ⇒ %s', (before, after, expected) => expect(cand(before, after)).toEqual(expected));
 
@@ -667,7 +693,7 @@ Also add:
 
 - **Store:** `openSecureStore(slot, { backend, subtle, randomBytes })` returns `{ get, set, clear, onDeferredClear }`, matching spec §2 plus `onDeferredClear(cb)`, which forwards `backend.onDeleted` so `correctionsStore` can post `'changed'`.
 
-- [ ] **Step 1: Failing tests** — every bullet under spec Testing → `secureStore.test.js`, using `memoryBackend()` and `webcrypto.subtle` from `node:crypto`.
+- [ ] **Step 1: Failing tests** — every bullet under spec Testing → `secureStore.test.js` **except the passphrase bullets** (round trip, wrong passphrase, iteration bounds, 600,000 default), which belong to Task 17 in Phase 2. Use `memoryBackend()` and `webcrypto.subtle` from `node:crypto`.
   - The memory backend can be told to throw on reading `'key'` (simulating a lost WebKit master key).
   - A second `memoryBackend` handle on the same `Map` stands in for a second tab, so `destroy` from one triggers `onVersionChange` in the other.
   - It can be told to report "blocked" until released.
@@ -747,6 +773,10 @@ Also add:
 - [ ] **Step 6: Settings.**
   - **`learning-toggle`:** `checked = getLearningEnabled()`. Its `onchange` persists the value; turning it off clears `learnCandidates`, `noteRules` and `notePassRules`; turning it on mid-note loads `noteRules`.
   - **`refreshFixesList()`:** called from `setSettingsOpen(true)`. It shows "Loading…", then the rows or `#fixes-empty`, plus the `#fixes-status` messages (Phase 1 wording).
+    - Rows are most recently used first. Each has `<bdi>from</bdi> → <bdi>to</bdi>`, a `×count` hint, and a delete button with `aria-label="Delete fix …"`.
+    - It also updates `learnAvailable` from the loaded state.
+    - **Clear all stays enabled while the store is `unsupported`** (spec §5).
+  - **Undo** (on `#learn-status`) deletes the saved rule, or restores `replaced` when there was one. The status names any `evicted` rule.
   - **`store.onChange`:** replaces `noteRules`, intersects `notePassRules` (same key and same `to`; a failed load yields `[]`, which is intended), and refreshes the list if Settings is open.
   - **`btn-fixes-clear`:** `confirm()`, then `clearAll()`. On `'blocked'`, show "Close other Voice Note tabs and try again".
 - [ ] **Step 7: `npm test`** — PASS.
