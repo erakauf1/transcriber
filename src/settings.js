@@ -163,3 +163,12 @@ export function getLearningNoticeShown() {
 export function setLearningNoticeShown(shown) {
   writeFlag('learning_notice_shown', shown);
 }
+
+// The transcription glossary is opt-in until it has been A/B-tested on real audio
+// (learned-corrections spec §6 ship gate).
+export function getLearningGlossaryEnabled() {
+  return readFlag('learning_glossary', false);
+}
+export function setLearningGlossaryEnabled(enabled) {
+  writeFlag('learning_glossary', enabled);
+}

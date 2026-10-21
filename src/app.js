@@ -14,14 +14,18 @@ import {
   getRefineProvider, setRefineProvider, getRefineModel, setRefineModel,
   getNoiseSuppressionEnabled, setNoiseSuppressionEnabled,
   getLearningEnabled, setLearningEnabled,
+  getLearningGlossaryEnabled, setLearningGlossaryEnabled,
+  getLearningNoticeShown, setLearningNoticeShown,
 } from './settings.js';
 import { createVAD } from './vad.js';
 import { checkNoiseSuppressionSupport } from './audio-pipeline.js';
 import { initialState, reduce } from './state.js';
 import { generateRefinementChips, applyRefinement } from './refine.js';
 import { modelLabel, formatCost } from './pricing.js';
-import { extractCandidates, mergeCandidates, safeApply, ruleKey, candidateKey } from './corrections.js';
-import { correctionsStore, RuleConflictError, StoreResetRequired } from './correctionsStore.js';
+import {
+  extractCandidates, mergeCandidates, safeApply, ruleKey, candidateKey, relevantRules, vocabularyTerms,
+} from './corrections.js';
+import { correctionsStore, RuleConflictError, StoreResetRequired, MAX_EXPORT_BYTES } from './correctionsStore.js';
 
 let state = initialState;
 let recorder = null;
@@ -59,6 +63,8 @@ let chipsChangedAt = 0;
 let appliedShown = '';
 let learnAvailable = true;
 let learnStatusTimer = null;
+let learnNoticePending = false;
+let recordedMs = 0; // length of the note being processed; no glossary under 2 s (echo risk)
 
 const fixes = () => correctionsStore();
 const learnActive = () => getLearningEnabled() && learnAvailable;
@@ -203,6 +209,12 @@ function render() {
     $('cost-line').hidden = !cost;
     $('cost-line').textContent = cost;
     $('raw-details').hidden = cleanupFailed; // raw already shown as the main text
+    if (learnNoticePending) {
+      learnNoticePending = false;
+      showLearnStatus([getLearningGlossaryEnabled()
+        ? 'Learned fixes are now sent with your notes to your transcription and cleanup providers — turn off in Settings'
+        : 'Learned fixes are now sent with your notes to your cleanup provider — turn off in Settings']);
+    }
     renderLearnChips();
     renderLearnApplied();
     if (state.autoCopied && !autoCopyAnnounced) {
@@ -283,6 +295,13 @@ async function loadRulesForNote() {
   return loaded.rules;
 }
 
+// Said once, the first time learned data actually leaves the device.
+function announceLearnedData() {
+  if (getLearningNoticeShown()) return;
+  setLearningNoticeShown(true);
+  learnNoticePending = true;
+}
+
 function noteHit(rule, matched, written) {
   const key = ruleKey(rule);
   const entry = appliedRules.get(key) ?? { rule, seen: new Map() };
@@ -294,13 +313,15 @@ async function runTranscription() {
   noteCost = { cleanup: null, refine: null };
   appliedRules = new Map();
   appliedShown = '';
-  const rulesLoading = learnActive() ? loadRulesForNote() : Promise.resolve([]);
+  const loaded = learnActive() ? await loadRulesForNote() : [];
+  notePassRules = loaded;
+  noteRules = loaded;
   try {
-    const heard = await transcribe(state.audioBlob, getOpenAIKey());
-    // Re-checked after the awaits: Learning may have been switched off meanwhile.
-    const rules = learnActive() ? await rulesLoading : [];
-    notePassRules = rules;
-    noteRules = rules;
+    const vocabulary = getLearningGlossaryEnabled() && recordedMs >= 2000 ? vocabularyTerms(loaded) : [];
+    if (vocabulary.length) announceLearnedData();
+    const heard = await transcribe(state.audioBlob, getOpenAIKey(), { vocabulary });
+    // Re-checked after the await: Learning may have been switched off meanwhile.
+    const rules = learnActive() ? loaded : [];
     // The pre-pass runs here, not in runCleanup, so the cleanup fallback, Retry
     // cleanup and restoreEnglishTerms all start from the corrected text.
     const hits = new Map();
@@ -322,10 +343,15 @@ async function runCleanup(rules = notePassRules) {
     // English terms written in Hebrew letters are restored in a guarded step of
     // their own, before cleanup sees the text — see englishTerms.js.
     const withTerms = await restoreEnglishTerms(state.rawTranscript, state.language, step);
-    const cleaned = await cleanup(withTerms, state.language, step);
+    // Only the rules this note actually touches reach the cleanup provider, and
+    // none once Learning is off (it may have been switched off mid-note).
+    const active = learnActive() ? rules : [];
+    const corrections = relevantRules(withTerms, active);
+    if (corrections.length) announceLearnedData();
+    const cleaned = await cleanup(withTerms, state.language, { ...step, corrections });
     // The post-pass stops the model from bringing a fixed error back. Its hits are
     // shown but not counted: the pre-pass already counted the same occurrence.
-    const text = safeApply(cleaned, learnActive() ? rules : [], noteHit);
+    const text = safeApply(cleaned, active, noteHit);
     const autoCopied = await copyText(text);
     dispatch({ type: 'CLEANUP_OK', text, autoCopied });
   } catch (err) {
@@ -349,10 +375,11 @@ $('btn-record').onclick = async () => {
   if (recorder) return;
   $('btn-record').disabled = true;
   $('timer').textContent = '0:00';
+  recordedMs = 0;
   buildWave();
   recorder = createRecorder({
     noiseSuppression: getNoiseSuppressionEnabled(),
-    onTick: (ms) => { $('timer').textContent = fmt(ms); },
+    onTick: (ms) => { $('timer').textContent = fmt(ms); recordedMs = ms; },
     // The bars keep their designed animation; the live level scales the whole
     // set, floored at .35 so a quiet moment still reads as "listening".
     onLevel: (v) => {
@@ -719,7 +746,7 @@ let fixesShown = [];
 function fixesStatusText(s) {
   if (s.unavailable) return 'Learned fixes need browser storage, which is blocked here.';
   if (s.unsupported) return 'Learned fixes were saved by a newer version of the app. Reload to update, or use Clear all to start over. Nothing will be changed until then.';
-  if (s.unreadable) return 'Learned fixes on this device could not be read. Saving a new fix will ask to start a fresh list.';
+  if (s.unreadable) return 'Learned fixes on this device could not be read. Import a backup to restore them, or save a new fix to start a fresh list.';
   if (s.dropped) return `${s.dropped} stored fixes were invalid and were ignored.`;
   return '';
 }
@@ -785,6 +812,130 @@ learningToggle.onchange = async () => {
     noteRules = await loadRulesForNote();
   }
   render();
+};
+
+const glossaryToggle = $('glossary-toggle');
+glossaryToggle.checked = getLearningGlossaryEnabled();
+glossaryToggle.onchange = () => setLearningGlossaryEnabled(glossaryToggle.checked);
+
+// Export / Import. Both always go through a passphrase: the file travels.
+let passAction = null;   // 'export' | 'import'
+let importFile = null;
+let exportFile = null;
+
+function transferStatus(...parts) {
+  const el = $('fixes-transfer-status');
+  el.replaceChildren(...parts);
+  el.hidden = !parts.length;
+}
+
+function openPassRow(action) {
+  passAction = action;
+  exportFile = null;
+  $('fixes-pass-row').hidden = false;
+  $('fixes-pass').value = '';
+  $('fixes-pass-confirm').value = '';
+  $('fixes-pass').autocomplete = action === 'export' ? 'new-password' : 'current-password';
+  $('fixes-pass-confirm').hidden = action !== 'export';
+  $('btn-fixes-pass-go').hidden = false;
+  $('btn-fixes-share').hidden = true;
+  transferStatus();
+  $('fixes-pass').focus();
+}
+
+function closePassRow() {
+  passAction = null;
+  importFile = null;
+  exportFile = null;
+  $('fixes-pass').value = '';
+  $('fixes-pass-confirm').value = '';
+  $('fixes-pass-row').hidden = true;
+}
+
+$('btn-fixes-export').onclick = () => openPassRow('export');
+$('btn-fixes-import').onclick = () => $('fixes-import-file').click();
+$('btn-fixes-pass-cancel').onclick = () => { closePassRow(); transferStatus(); };
+
+$('fixes-import-file').onchange = () => {
+  const input = $('fixes-import-file');
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  if (file.size > MAX_EXPORT_BYTES) {
+    transferStatus('Not a valid learned-fixes file, or wrong passphrase');
+    return;
+  }
+  openPassRow('import');
+  importFile = file;
+};
+
+async function runImport(file, passphrase, { confirmReset = false } = {}) {
+  try {
+    const { added, skipped } = await fixes().importFixes(file, passphrase, { confirmReset });
+    closePassRow();
+    // Listed so the user can review what came in, and delete any of it.
+    const parts = [added.length ? `Imported ${added.length} fixes: ` : 'No new fixes to import.'];
+    added.forEach((r, i) => parts.push(i ? ', ' : '', bdi(r.from), ' → ', bdi(r.to)));
+    if (skipped.length) parts.push(` (${skipped.length} skipped: they conflict with fixes you already have, or the list is full)`);
+    transferStatus(...parts);
+    refreshFixesList();
+  } catch (err) {
+    if (err instanceof StoreResetRequired) {
+      if (confirm("Learned fixes on this device can't be read. Replace them with the imported ones? The unreadable list will be deleted.")) {
+        await runImport(file, passphrase, { confirmReset: true });
+      } else {
+        closePassRow();
+        transferStatus();
+      }
+      return;
+    }
+    closePassRow();
+    transferStatus(err.message);
+  }
+}
+
+$('btn-fixes-pass-go').onclick = async () => {
+  const passphrase = $('fixes-pass').value;
+  if (passAction === 'export') {
+    if (passphrase.length < 10) { transferStatus('Use a passphrase of at least 10 characters.'); return; }
+    if (passphrase !== $('fixes-pass-confirm').value) { transferStatus("The passphrases don't match."); return; }
+    $('fixes-pass').value = '';
+    $('fixes-pass-confirm').value = '';
+    transferStatus('Encrypting…');
+    try {
+      exportFile = await fixes().exportFixes(passphrase);
+    } catch (err) {
+      closePassRow();
+      transferStatus(err.message);
+      return;
+    }
+    // PBKDF2 takes about a second, after which navigator.share may have lost the
+    // tap's user activation — so sharing gets a tap of its own.
+    $('btn-fixes-pass-go').hidden = true;
+    $('btn-fixes-share').hidden = false;
+    transferStatus('Ready. Keep the passphrase: the file cannot be opened without it.');
+  } else if (passAction === 'import' && importFile) {
+    $('fixes-pass').value = '';
+    transferStatus('Decrypting…');
+    await runImport(importFile, passphrase);
+  }
+};
+
+$('btn-fixes-share').onclick = async () => {
+  const file = exportFile;
+  if (!file) return;
+  closePassRow();
+  transferStatus();
+  if (navigator.canShare?.({ files: [file] })) {
+    await navigator.share({ files: [file] }).catch(() => {});
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = file.name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 };
 
 // Another tab (or this one) changed the stored fixes.
