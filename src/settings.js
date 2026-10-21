@@ -130,3 +130,36 @@ export function setNoiseSuppressionEnabled(enabled) {
     // Storage blocked — no-op.
   }
 }
+
+function readFlag(key, fallback) {
+  try {
+    const val = localStorage.getItem(key);
+    return val === null ? fallback : val === 'true';
+  } catch {
+    return fallback;
+  }
+}
+
+function writeFlag(key, value) {
+  try {
+    localStorage.setItem(key, String(!!value));
+  } catch {
+    // Storage blocked — no-op.
+  }
+}
+
+// Learned fixes themselves never live here: they are encrypted in IndexedDB by
+// correctionsStore.js. These are only the switches.
+export function getLearningEnabled() {
+  return readFlag('learning_enabled', true);
+}
+export function setLearningEnabled(enabled) {
+  writeFlag('learning_enabled', enabled);
+}
+
+export function getLearningNoticeShown() {
+  return readFlag('learning_notice_shown', false);
+}
+export function setLearningNoticeShown(shown) {
+  writeFlag('learning_notice_shown', shown);
+}

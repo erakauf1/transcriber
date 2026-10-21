@@ -109,6 +109,9 @@
         <span id="copy-feedback" class="copy-done" hidden></span>
       </button>
       <p id="copy-error" class="error" hidden>Copy failed — long-press the text and copy manually.</p>
+      <div id="learn-chips" class="refine-chips learn-chips" role="group" aria-label="Fixes to remember" hidden></div>
+      <p id="learn-status" class="hint hint-tight" hidden></p>
+      <p id="learn-applied" class="hint hint-tight" hidden></p>
       <details id="raw-details" open>
         <summary>Show raw transcript</summary>
         <p id="raw-label">Raw transcript</p>
@@ -201,6 +204,19 @@
           <div class="toggle-row">
             <input id="ns-toggle" type="checkbox" role="switch" />
             <span id="ns-label" class="hint-tight">Reduces background noise for cleaner transcriptions</span>
+          </div>
+        </div>
+        <div class="field">
+          <label for="learning-toggle">Learned fixes</label>
+          <div class="toggle-row">
+            <input id="learning-toggle" type="checkbox" role="switch" />
+            <span class="hint-tight">Offer to remember words you fix by hand</span>
+          </div>
+          <p id="fixes-status" class="hint hint-tight" hidden></p>
+          <ul id="fixes-list" class="fixes-list"></ul>
+          <p id="fixes-empty" class="hint hint-tight">No learned fixes yet</p>
+          <div class="fixes-actions">
+            <button id="btn-fixes-clear" class="btn btn-quiet" type="button">Clear all</button>
           </div>
         </div>
         <p class="sheet-note">

@@ -585,6 +585,54 @@ input[role="switch"]:focus-visible {
 .refine-error-msg { text-align: center; }
 .refine-error-msg[hidden] { display: none; }
 
+/* ── learned fixes ───────────────────────────────────────────────────────── */
+
+.learn-chips { margin-top: 4px; }
+
+/* Outline style with a dashed border, so a fix to remember never reads as a
+   refine action. The × is its own button beside the chip. */
+.learn-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px dashed var(--color-neutral-600);
+  border-radius: 20px;
+}
+.learn-chip .refine-chip { border: 0; padding-inline-end: 6px; white-space: normal; }
+.learn-chip-x {
+  border: 0;
+  background: transparent;
+  color: var(--color-neutral-500);
+  font: 400 16px/1 var(--font-body);
+  padding: 8px 12px 8px 4px;
+  cursor: pointer;
+}
+.learn-chip-x:hover { color: var(--color-text); }
+.learn-chip-x:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 20px; }
+
+.learn-inline {
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
+  padding: 0 4px;
+  cursor: pointer;
+}
+
+.fixes-list { list-style: none; margin: 10px 0 0; padding: 0; }
+.fixes-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-neutral-800);
+  font: 400 14px/1.4 var(--font-body);
+  color: var(--color-text);
+}
+.fixes-count { color: var(--color-neutral-600); font-size: 12px; }
+.fixes-row .learn-chip-x { margin-inline-start: auto; padding: 4px 8px; }
+.fixes-actions { display: flex; gap: 8px; margin-top: 10px; }
+.fixes-actions .btn { font-size: 13px; padding: 8px 14px; }
+
 /* ── motion ─────────────────────────────────────────────────────────────── */
 
 @keyframes wave-bar  { 0%, 100% { transform: scaleY(.18) } 50% { transform: scaleY(1) } }
