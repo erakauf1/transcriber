@@ -82,3 +82,36 @@ describe('reduce', () => {
     expect(s).toEqual(initialState);
   });
 });
+
+describe('EDIT_COMMIT', () => {
+  const result = { ...initialState, phase: 'result', rawTranscript: 'raw', cleanedText: 'clean', autoCopied: true, error: null };
+
+  it('updates cleanedText when cleanup succeeded', () => {
+    const s = reduce(result, { type: 'EDIT_COMMIT', text: 'clean, fixed' });
+    expect(s.cleanedText).toBe('clean, fixed');
+    expect(s.rawTranscript).toBe('raw');
+  });
+
+  it('updates rawTranscript when cleanup failed, so Retry cleanup uses the edit', () => {
+    const failed = { ...result, cleanedText: null, error: 'boom' };
+    const s = reduce(failed, { type: 'EDIT_COMMIT', text: 'raw, fixed' });
+    expect(s.rawTranscript).toBe('raw, fixed');
+    expect(s.cleanedText).toBeNull();
+    expect(s.error).toBe('boom');
+  });
+
+  it('ignores whitespace-only text', () => {
+    expect(reduce(result, { type: 'EDIT_COMMIT', text: '  \n ' })).toBe(result);
+  });
+
+  it('ignores phases other than result', () => {
+    const cleaning = { ...result, phase: 'cleaning' };
+    expect(reduce(cleaning, { type: 'EDIT_COMMIT', text: 'x' })).toBe(cleaning);
+  });
+
+  it('leaves autoCopied and error alone', () => {
+    const s = reduce(result, { type: 'EDIT_COMMIT', text: 'y' });
+    expect(s.autoCopied).toBe(true);
+    expect(s.error).toBeNull();
+  });
+});
