@@ -52,7 +52,7 @@ Run the full suite and the PR's manual checks before opening each PR.
 
 ## Open questions for reviewers
 
-The spec leaves these open, or a literal reading conflicts with another section. The plan picks the option marked **(plan)**. Please confirm or overrule on the plan PR before Task 3 starts.
+The spec leaves these open, or a literal reading conflicts with another section. **Decided:** every option marked **(plan)** is adopted. Q8 and Q9 change the spec, and the spec has been updated to match (§1 filter 6, and "Form consistency" under the idempotence invariant).
 
 1. **`count` granularity (§3, §5).** "1 on save, plus 1 per pre-pass hit", but `app.js` passes `recordHits` a list of *rules*, one per rule that fired. **(plan)** +1 per rule per note, however many occurrences. Then `count ≥ 2` in `vocabularyTerms` means "fired on at least one later note", which the spec intends.
 2. **Cross-tab lost updates (§3).** The write queue serialises writes within one tab. Two tabs writing at the same moment can still read-modify-write over each other. **(plan)** Wrap each read-modify-write in `navigator.locks.request('transcriber-corrections', …)` when `navigator.locks` exists, falling back to the in-tab queue. Small, no dependency, closes the gap; adds one test.
