@@ -13,12 +13,15 @@ import {
   getRefineAnthropicModel, setRefineAnthropicModel,
   getRefineProvider, setRefineProvider, getRefineModel, setRefineModel,
   getNoiseSuppressionEnabled, setNoiseSuppressionEnabled,
+  getLearningEnabled, setLearningEnabled,
 } from './settings.js';
 import { createVAD } from './vad.js';
 import { checkNoiseSuppressionSupport } from './audio-pipeline.js';
 import { initialState, reduce } from './state.js';
 import { generateRefinementChips, applyRefinement } from './refine.js';
 import { modelLabel, formatCost } from './pricing.js';
+import { extractCandidates, mergeCandidates, safeApply, ruleKey, candidateKey } from './corrections.js';
+import { correctionsStore, RuleConflictError, StoreResetRequired } from './correctionsStore.js';
 
 let state = initialState;
 let recorder = null;
@@ -40,6 +43,25 @@ let refineError = null;
 // The text last written into #result-text. render() writes the textarea only
 // when the source text changes, so no unrelated re-render can wipe an edit.
 let lastShownText = null;
+
+// Learned fixes (see docs/superpowers/specs/2026-10-21-learned-corrections-design.md §5).
+// Candidates and dismissals live only while a result is on screen and are never
+// stored. noteRules is the live rule list (capture filters, chips); notePassRules is
+// the snapshot both correction passes of this note use, so a note never gains rules
+// mid-way — two sets that are each valid could chain into each other.
+let learnCandidates = [];
+let dismissedKeys = new Set();
+let noteRules = [];
+let notePassRules = [];
+let appliedRules = new Map(); // ruleKey → { rule, seen: Map<matchedText, writtenText> }
+let chipNodes = new Map();    // candidateKey → chip element currently in #learn-chips
+let chipsChangedAt = 0;
+let appliedShown = '';
+let learnAvailable = true;
+let learnStatusTimer = null;
+
+const fixes = () => correctionsStore();
+const learnActive = () => getLearningEnabled() && learnAvailable;
 
 // Estimated LLM spend for the note on screen, per step: { usd, tokens, unknown, model }.
 // Reset per recording; a cleanup retry or extra refine adds to it.
@@ -134,6 +156,9 @@ function render() {
     refineApplying = false;
     refineError = null;
     lastShownText = null;
+    learnCandidates = [];
+    dismissedKeys = new Set();
+    hideLearnStatus();
   }
 
   $('screen-idle').hidden = state.phase !== 'idle';
@@ -178,6 +203,8 @@ function render() {
     $('cost-line').hidden = !cost;
     $('cost-line').textContent = cost;
     $('raw-details').hidden = cleanupFailed; // raw already shown as the main text
+    renderLearnChips();
+    renderLearnApplied();
     if (state.autoCopied && !autoCopyAnnounced) {
       autoCopyAnnounced = true;
       showCopied('Copied ✓ — paste it into your chat');
@@ -246,24 +273,57 @@ function showCopied(message) {
   }, 2500);
 }
 
+// Rules for the note about to be transcribed. Storage that is slow or broken
+// never holds up the pipeline: after 1.5 s the note simply goes without them.
+async function loadRulesForNote() {
+  const timeout = new Promise((resolve) => setTimeout(resolve, 1500, null));
+  const loaded = await Promise.race([fixes().loadState().catch(() => null), timeout]);
+  if (!loaded) return [];
+  if (loaded.unavailable || loaded.unsupported) learnAvailable = false;
+  return loaded.rules;
+}
+
+function noteHit(rule, matched, written) {
+  const key = ruleKey(rule);
+  const entry = appliedRules.get(key) ?? { rule, seen: new Map() };
+  entry.seen.set(matched, written);
+  appliedRules.set(key, entry);
+}
+
 async function runTranscription() {
   noteCost = { cleanup: null, refine: null };
+  appliedRules = new Map();
+  const rulesLoading = learnActive() ? loadRulesForNote() : Promise.resolve([]);
   try {
-    const text = await transcribe(state.audioBlob, getOpenAIKey());
+    const heard = await transcribe(state.audioBlob, getOpenAIKey());
+    const rules = await rulesLoading;
+    notePassRules = rules;
+    noteRules = rules;
+    // The pre-pass runs here, not in runCleanup, so the cleanup fallback, Retry
+    // cleanup and restoreEnglishTerms all start from the corrected text.
+    const hits = new Map();
+    const text = safeApply(heard, rules, (rule, matched, written) => {
+      hits.set(ruleKey(rule), rule);
+      noteHit(rule, matched, written);
+    });
+    if (hits.size) fixes().recordHits([...hits.values()]);
     dispatch({ type: 'TRANSCRIBE_OK', text, language: detectLanguage(text) });
-    runCleanup();
+    runCleanup(rules);
   } catch (err) {
     dispatch({ type: 'TRANSCRIBE_FAIL', message: err.message });
   }
 }
 
-async function runCleanup() {
+async function runCleanup(rules = notePassRules) {
   try {
     const step = { ...resolveStep(getCleanupProvider(), getCleanupModel(), getCleanupAnthropicModel()), onUsage: trackUsage('cleanup') };
     // English terms written in Hebrew letters are restored in a guarded step of
     // their own, before cleanup sees the text — see englishTerms.js.
     const withTerms = await restoreEnglishTerms(state.rawTranscript, state.language, step);
-    const text = await cleanup(withTerms, state.language, step);
+    const cleaned = await cleanup(withTerms, state.language, step);
+    // The post-pass stops the model from bringing a fixed error back. Its hits are
+    // shown but not counted: the pre-pass already counted the same occurrence.
+    const text = safeApply(cleaned, rules, noteHit);
     const autoCopied = await copyText(text);
     dispatch({ type: 'CLEANUP_OK', text, autoCopied });
   } catch (err) {
@@ -393,17 +453,27 @@ $('btn-retry-transcribe').onclick = () => {
 };
 $('btn-cancel').onclick = () => dispatch({ type: 'RESET' });
 $('btn-retry-cleanup').onclick = () => {
-  commitEdits();
+  // Leaving the result screen clears candidates, so any found here would vanish unseen.
+  commitEdits({ learn: false });
   dispatch({ type: 'CLEANUP_RETRY' });
   runCleanup();
 };
 
 // Brings state in line with the textarea, so Refine, Retry cleanup and later
 // renders work from what the user actually sees.
-function commitEdits() {
+function commitEdits({ learn = true } = {}) {
   const current = $('result-text').value;
   const baseline = state.cleanedText ?? state.rawTranscript ?? '';
   if (current === baseline || !current.trim()) return;
+  if (learn && learnActive()) {
+    // After the commit the baseline equals the textarea, so the next commit
+    // only sees new edits and nothing is offered twice.
+    try {
+      learnCandidates = mergeCandidates(extractCandidates(baseline, current, { rules: noteRules }), learnCandidates, dismissedKeys);
+    } catch {
+      // Learning is optional; it must never stand between the user and their edit.
+    }
+  }
   lastShownText = current; // so the render below doesn't touch the textarea
   dispatch({ type: 'EDIT_COMMIT', text: current });
 }
@@ -478,9 +548,259 @@ async function handleChipClick(chip) {
   }
 }
 
+// ── learned fixes ───────────────────────────────────────────────────────────
+// Learned strings reach the DOM only as text nodes: never as markup.
+
+function bdi(text) {
+  const el = document.createElement('bdi');
+  el.textContent = text;
+  return el;
+}
+
+function smallButton(label, ariaLabel, onClick, className = 'learn-chip-x') {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = className;
+  btn.textContent = label;
+  if (ariaLabel) btn.setAttribute('aria-label', ariaLabel);
+  btn.onclick = onClick;
+  return btn;
+}
+
+// A chip that just appeared under the user's finger must not take the tap meant
+// for whatever was there a moment ago.
+const chipTapTooSoon = () => performance.now() - chipsChangedAt < 400;
+
+function buildLearnChip(candidate) {
+  const wrap = document.createElement('span');
+  wrap.className = 'learn-chip';
+  const save = document.createElement('button');
+  save.type = 'button';
+  save.className = 'refine-chip';
+  save.append('Always fix: ', bdi(candidate.from), ' → ', bdi(candidate.to));
+  save.onclick = () => { if (!chipTapTooSoon()) saveLearnedFix(candidate); };
+  const dismiss = smallButton('×', "Don't offer this", () => {
+    if (chipTapTooSoon()) return;
+    dismissedKeys.add(candidateKey(candidate));
+    learnCandidates = learnCandidates.filter((c) => candidateKey(c) !== candidateKey(candidate));
+    render();
+  });
+  wrap.append(save, dismiss);
+  return wrap;
+}
+
+// Updated by key: chips still shown keep their nodes and their place, and new ones
+// are appended, so a re-render never moves or recreates the chip being tapped.
+function renderLearnChips() {
+  const host = $('learn-chips');
+  const shown = learnActive() ? learnCandidates.slice(0, 3) : [];
+  const keys = shown.map(candidateKey);
+  host.hidden = !shown.length;
+  if (keys.length === chipNodes.size && keys.every((k) => chipNodes.has(k))) return;
+  for (const [key, el] of chipNodes) {
+    if (!keys.includes(key)) { el.remove(); chipNodes.delete(key); }
+  }
+  shown.forEach((c, i) => {
+    if (chipNodes.has(keys[i])) return;
+    const el = buildLearnChip(c);
+    chipNodes.set(keys[i], el);
+    host.append(el);
+  });
+  chipsChangedAt = performance.now();
+}
+
+function hideLearnStatus() {
+  clearTimeout(learnStatusTimer);
+  $('learn-status').hidden = true;
+  $('learn-status').replaceChildren();
+}
+
+function showLearnStatus(parts, { timeoutMs = 0 } = {}) {
+  clearTimeout(learnStatusTimer);
+  const el = $('learn-status');
+  el.replaceChildren(...parts);
+  el.hidden = false;
+  if (timeoutMs) learnStatusTimer = setTimeout(hideLearnStatus, timeoutMs);
+}
+
+async function saveLearnedFix(candidate, { confirmReset = false } = {}) {
+  commitEdits();
+  try {
+    const { rules, evicted, replaced } = await fixes().saveRule(candidate, { confirmReset });
+    // Live list only: this note's passes keep their snapshot.
+    noteRules = rules;
+    learnCandidates = learnCandidates.filter((c) => c.group !== candidate.group);
+    const parts = ['Saved — future notes will use ‘', bdi(candidate.to), '’'];
+    if (evicted) parts.push(' (removed ‘', bdi(evicted.from), ' → ', bdi(evicted.to), '’ to make room)');
+    parts.push(smallButton('Undo', null, () => undoSave(candidate, replaced), 'learn-inline'));
+    showLearnStatus(parts, { timeoutMs: 5000 });
+  } catch (err) {
+    if (err instanceof StoreResetRequired) {
+      if (confirm("Learned fixes on this device can't be read. Start a new list? The unreadable one will be deleted.")) {
+        await saveLearnedFix(candidate, { confirmReset: true });
+        return;
+      }
+    } else if (err instanceof RuleConflictError) {
+      const { conflict } = err;
+      showLearnStatus([
+        err.message,
+        smallButton(`Delete ‘${conflict.from} → ${conflict.to}’ and save`, null, async () => {
+          await deleteFix(conflict);
+          await saveLearnedFix(candidate);
+        }, 'learn-inline'),
+      ]);
+    } else {
+      showLearnStatus(['Could not save this fix: ', err.message]);
+    }
+  }
+  render();
+  if (settingsOpen) refreshFixesList();
+}
+
+async function undoSave(candidate, replaced) {
+  hideLearnStatus();
+  try {
+    noteRules = replaced
+      ? (await fixes().saveRule(replaced)).rules
+      : await fixes().deleteRule(candidate);
+  } catch {
+    showLearnStatus(['Could not undo — delete the fix in Settings.']);
+  }
+  render();
+}
+
+async function deleteFix(rule) {
+  try {
+    await fixes().deleteRule(rule);
+  } catch {
+    showLearnStatus(['Could not delete this fix.']);
+    return;
+  }
+  const gone = (r) => ruleKey(r) === ruleKey(rule);
+  noteRules = noteRules.filter((r) => !gone(r));
+  // Removing a rule from the snapshot is always safe: any subset of a valid set
+  // is valid. So Retry cleanup won't re-apply a rule the user just deleted.
+  notePassRules = notePassRules.filter((r) => !gone(r));
+  appliedRules.delete(ruleKey(rule));
+  render();
+}
+
+// What fired on this note, as it appeared in the text, so a wrong rule is never
+// invisible. Deleting one doesn't undo this note's replacement; the user edits it.
+function renderLearnApplied() {
+  const el = $('learn-applied');
+  const entries = [...appliedRules.values()];
+  const signature = entries.map((e) => `${ruleKey(e.rule)}=${[...e.seen].join()}`).join('\n');
+  el.hidden = !entries.length;
+  if (signature === appliedShown) return;
+  appliedShown = signature;
+  const parts = ['Learned fixes applied: '];
+  entries.forEach(({ rule, seen }, i) => {
+    if (i) parts.push('; ');
+    [...seen].forEach(([matched, written], j) => parts.push(j ? ', ' : '', bdi(matched), ' → ', bdi(written)));
+    parts.push(smallButton('×', `Delete fix ${rule.from} → ${rule.to}`, () => deleteFix(rule)));
+  });
+  el.replaceChildren(...parts);
+}
+
+// Taps on a chip must not blur the textarea: no change event and no re-render
+// between press and click, so an edit made after the chips appeared survives.
+for (const type of ['pointerdown', 'mousedown']) {
+  $('learn-chips').addEventListener(type, (e) => e.preventDefault());
+}
+
+let fixesShown = [];
+
+function fixesStatusText(s) {
+  if (s.unavailable) return 'Learned fixes need browser storage, which is blocked here.';
+  if (s.unsupported) return 'Learned fixes were saved by a newer version of the app. Reload to update, or use Clear all to start over. Nothing will be changed until then.';
+  if (s.unreadable) return 'Learned fixes on this device could not be read. Saving a new fix will ask to start a fresh list.';
+  if (s.dropped) return `${s.dropped} stored fixes were invalid and were ignored.`;
+  return '';
+}
+
+function renderFixesList(s) {
+  learnAvailable = !s.unavailable && !s.unsupported;
+  fixesShown = [...s.rules].sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt) || b.count - a.count);
+  $('fixes-list').replaceChildren(...fixesShown.map((rule) => {
+    const row = document.createElement('li');
+    row.className = 'fixes-row';
+    const count = document.createElement('span');
+    count.className = 'fixes-count';
+    count.textContent = `×${rule.count}`;
+    row.append(bdi(rule.from), ' → ', bdi(rule.to), count,
+      smallButton('×', `Delete fix ${rule.from} → ${rule.to}`, async () => { await deleteFix(rule); refreshFixesList(); }));
+    return row;
+  }));
+  const status = fixesStatusText(s);
+  $('fixes-status').hidden = !status;
+  $('fixes-status').textContent = status;
+  $('fixes-empty').hidden = fixesShown.length > 0 || !!status;
+  // Clear all stays available for an unsupported or unreadable store: the record
+  // version sits outside the ciphertext, so a corrupted one would otherwise lock
+  // the store for good.
+  $('btn-fixes-clear').disabled = s.unavailable || (!fixesShown.length && !s.unsupported && !s.unreadable);
+}
+
+async function refreshFixesList() {
+  $('fixes-status').hidden = false;
+  $('fixes-status').textContent = 'Loading…';
+  $('fixes-empty').hidden = true;
+  renderFixesList(await fixes().loadState());
+}
+
+$('btn-fixes-clear').onclick = async () => {
+  const n = fixesShown.length;
+  if (!confirm(n ? `Delete all ${n} learned fixes? This can't be undone.` : "Delete all learned fixes? This can't be undone.")) return;
+  try {
+    await fixes().clearAll();
+    noteRules = [];
+    notePassRules = [];
+  } catch (err) {
+    $('fixes-status').hidden = false;
+    $('fixes-status').textContent = err.code === 'blocked'
+      ? 'Close other Voice Note tabs and try again.'
+      : 'Could not clear learned fixes.';
+    return;
+  }
+  render();
+  refreshFixesList();
+};
+
+const learningToggle = $('learning-toggle');
+learningToggle.checked = getLearningEnabled();
+learningToggle.onchange = async () => {
+  setLearningEnabled(learningToggle.checked);
+  if (!learningToggle.checked) {
+    // The kill switch: no capture, no chips, and no post-pass on a later Retry.
+    learnCandidates = [];
+    noteRules = [];
+    notePassRules = [];
+  } else if (state.phase === 'result') {
+    noteRules = await loadRulesForNote();
+  }
+  render();
+};
+
+// Another tab (or this one) changed the stored fixes.
+fixes().onChange(async () => {
+  const s = await fixes().loadState();
+  noteRules = learnActive() ? s.rules : [];
+  const live = new Map(s.rules.map((r) => [ruleKey(r), r.to]));
+  // Removals reach this note's snapshot, additions never do. A failed load
+  // empties it, which only turns the post-pass off: the safe direction.
+  notePassRules = notePassRules.filter((r) => live.get(ruleKey(r)) === r.to);
+  if (settingsOpen) renderFixesList(s);
+  render();
+});
+
 $('btn-new').onclick = () => dispatch({ type: 'RESET' });
 
-const setSettingsOpen = (open) => { settingsOpen = open; render(); };
+const setSettingsOpen = (open) => {
+  settingsOpen = open;
+  render();
+  if (open) refreshFixesList();
+};
 $('btn-settings').onclick = () => setSettingsOpen(true);
 $('btn-settings-done').onclick = () => setSettingsOpen(false);
 
