@@ -79,9 +79,10 @@ final class Recorder: NSObject, AVAudioRecorderDelegate {
 
     // Fires for the 5:00 cap, and also after our own stop() — by then `recorder` is nil, so it's a no-op.
     nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        let finished = ObjectIdentifier(recorder)
+        // Held strongly (not as an ObjectIdentifier) so a freed recorder's address can't be reused by the next one.
+        let finished = recorder
         Task { @MainActor in
-            guard let current = self.recorder, ObjectIdentifier(current) == finished else { return }
+            guard self.recorder === finished else { return }
             self.finish(.cap)
         }
     }
