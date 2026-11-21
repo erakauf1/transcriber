@@ -16,6 +16,7 @@ struct TranscriberApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .id(ObjectIdentifier(history.container))
                 .environment(model)
                 .environment(history)
                 .modelContainer(history.container)

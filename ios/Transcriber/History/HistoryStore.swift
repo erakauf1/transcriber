@@ -22,6 +22,7 @@ final class HistoryStore {
     private(set) var container: ModelContainer
     private(set) var hasUnreadable = false
     @ObservationIgnored private var queued: [NoteSnapshot] = []
+    @ObservationIgnored private var isFlushing = false
     @ObservationIgnored private var deletedIDs: Set<UUID> = []
     @ObservationIgnored private var cachedCipher: NoteCipher?
     private static let keyAccount = "history_key"
@@ -31,6 +32,10 @@ final class HistoryStore {
         NotificationCenter.default.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification,
                                                object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.protectedDataBecameAvailable() }
+        }
+        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification,
+                                               object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.retryPending() }
         }
     }
 
@@ -59,8 +64,15 @@ final class HistoryStore {
 
     // A launch while locked can't open the .complete store; once unlocked, swap the real one in and replay the queue.
     private func protectedDataBecameAvailable() {
+        retryPending()
+        refreshReadability()
+    }
+
+    /// Re-opens the on-disk store if we are on the in-memory fallback, then replays held writes.
+    func retryPending() {
+        guard !isFlushing else { return }
         if onFallback, let real = Self.openOnDisk() { container = real }
-        flushQueued()
+        if !queued.isEmpty { flushQueued() }
     }
 
     private enum KeyState { case ready(NoteCipher), missing, locked }
@@ -97,6 +109,7 @@ final class HistoryStore {
     }
 
     func upsert(_ s: NoteSnapshot) {
+        retryPending()
         guard !deletedIDs.contains(s.id) else { return }
         // The store is .complete and the key is WhenUnlocked: while locked, hold the write in memory.
         guard UIApplication.shared.isProtectedDataAvailable, !onFallback, let cipher = cipherForWrite() else {
@@ -142,6 +155,9 @@ final class HistoryStore {
     }
 
     func flushQueued() {
+        guard !isFlushing else { return }
+        isFlushing = true
+        defer { isFlushing = false }
         let pending = queued
         queued.removeAll()
         pending.forEach(upsert)
