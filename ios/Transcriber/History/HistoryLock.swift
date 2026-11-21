@@ -46,8 +46,8 @@ final class HistoryLock {
     func didEnterBackground() {
         // Also called for .inactive: the app switcher holds the scene there without ever backgrounding it.
         // A Face ID prompt makes the scene inactive too, so don't start the clock while one is up.
-        guard !isEvaluating else { return }
         backgroundedAt = backgroundedAt ?? .now
+        guard !isEvaluating else { return }
         needsRelockCheck = true
     }
 

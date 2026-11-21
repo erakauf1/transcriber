@@ -19,7 +19,10 @@ public struct Transcriber: Sendable {
             body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8))
         }
         body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"note.m4a\"\r\nContent-Type: audio/mp4\r\n\r\n".utf8))
-        body.append(try Data(contentsOf: fileURL))
+        let audio: Data
+        do { audio = try Data(contentsOf: fileURL) }
+        catch { throw ServiceError("Couldn't read the recording: \(error.localizedDescription)") }
+        body.append(audio)
         body.append(Data("\r\n".utf8))
         field("model", Self.model)
         // No `language` field: auto-detect keeps code-switched words in their original script.

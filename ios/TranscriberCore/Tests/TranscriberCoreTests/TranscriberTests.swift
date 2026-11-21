@@ -36,6 +36,15 @@ struct TranscriberTests {
         }
     }
 
+    @Test func unreadableRecording() async throws {
+        let session = StubURLProtocol.session { _ in StubURLProtocol.json(["text": "x"]) }
+        let missing = FileManager.default.temporaryDirectory.appending(path: "\(UUID()).m4a")
+        let error = await #expect(throws: ServiceError.self) {
+            try await Transcriber(session: session).transcribe(fileURL: missing, apiKey: "sk")
+        }
+        #expect(error?.message.hasPrefix("Couldn't read the recording: ") == true)
+    }
+
     @Test func emptyText() async throws {
         let session = StubURLProtocol.session { _ in StubURLProtocol.json(["text": " "]) }
         await #expect(throws: ServiceError("Transcription returned empty text")) {
