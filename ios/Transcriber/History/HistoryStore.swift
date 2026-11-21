@@ -25,6 +25,8 @@ final class HistoryStore {
     @ObservationIgnored private var isFlushing = false
     @ObservationIgnored private var deletedIDs: Set<UUID> = []
     @ObservationIgnored private var cachedCipher: NoteCipher?
+    @ObservationIgnored private var didSweep = false
+    @ObservationIgnored var ownedAudioFile: () -> String? = { nil }
     private static let keyAccount = "history_key"
 
     init(container: ModelContainer) {
@@ -41,6 +43,17 @@ final class HistoryStore {
 
     private var onFallback: Bool { container.configurations.contains { $0.isStoredInMemoryOnly } }
 
+    private static let storeName = "History.store"
+
+    private static func protectStoreFiles(in dir: URL) {
+        for suffix in ["", "-wal", "-shm"] {
+            let path = dir.appending(path: storeName + suffix).path(percentEncoded: false)
+            guard FileManager.default.fileExists(atPath: path) else { continue }
+            do { try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: path) }
+            catch { log.error("Protecting \(storeName + suffix, privacy: .public) failed: \(error.localizedDescription, privacy: .public)") }
+        }
+    }
+
     static func openOnDisk() -> ModelContainer? {
         let dir = URL.applicationSupportDirectory.appending(path: "History", directoryHint: .isDirectory)
         do {
@@ -49,8 +62,10 @@ final class HistoryStore {
             var values = URLResourceValues(); values.isExcludedFromBackup = true
             var mutableDir = dir
             try mutableDir.setResourceValues(values)
-            let config = ModelConfiguration(url: dir.appending(path: "History.store"))
-            return try ModelContainer(for: Note.self, configurations: config)
+            let config = ModelConfiguration(url: dir.appending(path: storeName))
+            let container = try ModelContainer(for: Note.self, configurations: config)
+            protectStoreFiles(in: dir)
+            return container
         } catch {
             log.error("Opening the history store failed: \(error.localizedDescription, privacy: .public)")
             return nil
@@ -72,6 +87,22 @@ final class HistoryStore {
         guard !isFlushing else { return }
         if onFallback, let real = Self.openOnDisk() { container = real }
         if !queued.isEmpty { flushQueued() }
+        sweepOrphanedAudio()
+    }
+
+    private func sweepOrphanedAudio() {
+        guard !didSweep, !onFallback, UIApplication.shared.isProtectedDataAvailable, case .ready = existingKey() else { return }
+        guard let notes = try? container.mainContext.fetch(FetchDescriptor<Note>()) else { return }
+        let urls = (try? FileManager.default.contentsOfDirectory(at: AudioFiles.directory, includingPropertiesForKeys: [.creationDateKey])) ?? []
+        didSweep = true
+        let referenced = Set(notes.compactMap(\.pendingAudioFile) + queued.compactMap(\.pendingAudioFile))
+        let owned = ownedAudioFile()
+        for url in urls where url.pathExtension == "m4a" {
+            let name = url.lastPathComponent
+            guard !referenced.contains(name), name != owned else { continue }
+            let created = (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .now
+            upsert(NoteSnapshot(id: UUID(), createdAt: created, status: .transcriptionFailed, pendingAudioFile: name))
+        }
     }
 
     private enum KeyState { case ready(NoteCipher), missing, locked }
@@ -150,6 +181,20 @@ final class HistoryStore {
             log.error("Saving a note failed: \(error.localizedDescription, privacy: .public)")
             context.rollback()
             enqueue(s)
+            return
+        }
+        Self.protectStoreFiles(in: URL.applicationSupportDirectory.appending(path: "History", directoryHint: .isDirectory))
+        releaseAudio(of: note, snapshot: s, context: context)
+    }
+
+    // Only a transcript that is already on disk lets go of the recording.
+    private func releaseAudio(of note: Note, snapshot s: NoteSnapshot, context: ModelContext) {
+        guard s.rawTranscript != nil, let file = s.pendingAudioFile else { return }
+        removeAudio([file])
+        note.pendingAudioFile = nil
+        do { try context.save() } catch {
+            log.error("Clearing the audio reference failed: \(error.localizedDescription, privacy: .public)")
+            context.rollback()
         }
     }
 
@@ -214,24 +259,40 @@ final class HistoryStore {
         removeAudio(files)
     }
 
-    func deleteAll() {
+    func discardUntranscribed(id: UUID) {
+        queued.removeAll { $0.id == id }
+        deletedIDs.insert(id)
+        let context = container.mainContext
+        guard let note = try? context.fetch(FetchDescriptor<Note>(predicate: #Predicate { $0.id == id })).first,
+              note.rawCipher == nil else { return }
+        let files = [note.pendingAudioFile].compactMap { $0 }
+        context.delete(note)
+        do { try context.save() } catch {
+            log.error("Discarding a note failed: \(error.localizedDescription, privacy: .public)")
+            context.rollback()
+            return
+        }
+        removeAudio(files)
+    }
+
+    func deleteUnreadable() {
         let context = container.mainContext
         let all: [Note]
         do { all = try context.fetch(FetchDescriptor<Note>()) } catch {
             log.error("Fetching notes to delete failed: \(error.localizedDescription, privacy: .public)")
             return
         }
-        let ids = all.map(\.id) + queued.map(\.id)
-        let files = all.compactMap(\.pendingAudioFile)
-        all.forEach(context.delete)
+        let doomed = all.filter { let d = text(of: $0); return !d.readable && !d.locked }
+        let ids = doomed.map(\.id)
+        let files = doomed.compactMap(\.pendingAudioFile)
+        doomed.forEach(context.delete)
         do {
             try context.save()
         } catch {
-            log.error("Clearing history failed: \(error.localizedDescription, privacy: .public)")
+            log.error("Deleting unreadable notes failed: \(error.localizedDescription, privacy: .public)")
             context.rollback()
             return
         }
-        queued.removeAll()
         deletedIDs.formUnion(ids)
         removeAudio(files)
         hasUnreadable = false

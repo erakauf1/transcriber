@@ -19,6 +19,7 @@ final class Recorder: NSObject, AVAudioRecorderDelegate {
     private var interruptionObserver: NSObjectProtocol?
 
     var isRecording: Bool { recorder != nil }
+    var currentFile: String? { recorder?.url.lastPathComponent }
 
     static func requestPermission() async -> Bool { await AVAudioApplication.requestRecordPermission() }
 
@@ -83,7 +84,15 @@ final class Recorder: NSObject, AVAudioRecorderDelegate {
         let finished = recorder
         Task { @MainActor in
             guard self.recorder === finished else { return }
-            self.finish(.cap)
+            self.finish(flag ? .cap : .interrupted)
+        }
+    }
+
+    nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
+        let failed = recorder
+        Task { @MainActor in
+            guard self.recorder === failed else { return }
+            self.finish(.interrupted)
         }
     }
 }

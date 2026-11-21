@@ -30,9 +30,11 @@ final class AppModel {
     var refineError: String?
     var costText: String?
     var banner: String?
+    var micDenied = false
     var toast: String?
 
     @ObservationIgnored var onNoteChanged: (NoteSnapshot) -> Void = { _ in }
+    @ObservationIgnored var onNoteDiscarded: (UUID) -> Void = { _ in }
     @ObservationIgnored private let recorder = Recorder()
     @ObservationIgnored private let client = LLMClient()
     @ObservationIgnored private let transcriber = Transcriber()
@@ -46,6 +48,10 @@ final class AppModel {
     @ObservationIgnored private var pipeline: Task<Void, Never>?
     // Bumped on every new note and reset: results from an older note's in-flight work must not touch the current one.
     @ObservationIgnored private var generation = 0
+    // changeCount right after our own pasteboard write: lets the foreground re-write skip clobbering a newer copy.
+    @ObservationIgnored private var ownPasteboardCount: Int?
+
+    var activeAudioFile: String? { recorder.currentFile ?? state.audioFile?.lastPathComponent ?? note?.pendingAudioFile }
 
     init(settings: Settings) {
         self.settings = settings
@@ -68,11 +74,12 @@ final class AppModel {
         guard state.phase == .idle, !recorder.isRecording else { return }
         guard await Recorder.requestPermission() else {
             banner = "Microphone access is off. Turn it on in Settings → Transcriber."
+            micDenied = true
             return
         }
         do {
             try recorder.start()
-            banner = nil; elapsed = 0; silentStyle = false
+            banner = nil; micDenied = false; elapsed = 0; silentStyle = false
             levels = Array(repeating: 0, count: 24)
             dispatch(.recordStart)
         } catch {
@@ -83,7 +90,8 @@ final class AppModel {
     func stopRecording() { recorder.stop() }
 
     private func recordingFinished(_ url: URL, _ reason: Recorder.FinishReason) {
-        beginNote(id: UUID(), createdAt: .now)
+        beginNote(id: UUID(), createdAt: .now, audioFile: url.lastPathComponent)
+        saveNote()
         if reason == .interrupted {
             dispatch(.recordInterrupted(url))
         } else {
@@ -101,17 +109,17 @@ final class AppModel {
     func retry(_ snapshot: NoteSnapshot) {
         guard state.phase == .idle || state.phase == .result, let file = snapshot.pendingAudioFile else { return }
         dispatch(.reset)
-        beginNote(id: snapshot.id, createdAt: snapshot.createdAt)
+        beginNote(id: snapshot.id, createdAt: snapshot.createdAt, audioFile: file)
         dispatch(.recordStop(AudioFiles.url(named: file)))
         runPipeline()
     }
 
-    private func beginNote(id: UUID, createdAt: Date) {
+    private func beginNote(id: UUID, createdAt: Date, audioFile: String) {
         cancelInFlight()
         openAIKey = settings.key(for: .openai)
         cleanupStep = settings.cleanupStep()
         cost = CostMeter(); costText = nil; chips = []; chipsError = nil; refineError = nil
-        note = NoteSnapshot(id: id, createdAt: createdAt, status: .transcriptionFailed)
+        note = NoteSnapshot(id: id, createdAt: createdAt, status: .transcriptionFailed, pendingAudioFile: audioFile)
     }
 
     // MARK: Pipeline
@@ -140,14 +148,17 @@ final class AppModel {
     private func transcribeStep() async {
         guard let url = state.audioFile else { return }
         let gen = generation
+        await protectedDataAvailable()
+        guard !Task.isCancelled, gen == generation else { return }
         do {
             let text = try await transcriber.transcribe(fileURL: url, apiKey: openAIKey)
             guard !Task.isCancelled, gen == generation else { return }
             dispatch(.transcribeOK(text: text, language: detectLanguage(text)))
-            try? FileManager.default.removeItem(at: url)
-            note?.pendingAudioFile = nil
+            // The audio stays until the history store has this transcript on disk; the store deletes it then.
             note?.rawTranscript = text
             note?.language = state.language
+            note?.status = .cleanupFailed
+            saveNote()
         } catch {
             guard !Task.isCancelled, gen == generation else { return }
             dispatch(.transcribeFail(error.localizedDescription))
@@ -178,6 +189,16 @@ final class AppModel {
         updateCost()
         saveNote()
         if state.cleanedText != nil { await loadChips() }
+    }
+
+    private func protectedDataAvailable() async {
+        guard !UIApplication.shared.isProtectedDataAvailable else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let wake = OneShotWake(continuation)
+            for name in [UIApplication.protectedDataDidBecomeAvailableNotification, UIApplication.didBecomeActiveNotification] {
+                wake.add(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in wake.fire() })
+            }
+        }
     }
 
     private func saveNote() {
@@ -241,18 +262,23 @@ final class AppModel {
     // Written immediately even in the background so it can be pasted elsewhere right away;
     // written again on return in case iOS dropped the background write (checked on device in Task 13).
     private func autoCopy(_ text: String) -> Bool {
-        UIPasteboard.general.string = text
+        writePasteboard(text)
         if UIApplication.shared.applicationState == .active { showToast("Copied") } else { pendingCopy = text }
         return true
     }
 
+    private func writePasteboard(_ text: String) {
+        UIPasteboard.general.setItems([["public.utf8-plain-text": text]], options: [.localOnly: true])
+        ownPasteboardCount = UIPasteboard.general.changeCount
+    }
+
     func copyCurrent() {
-        UIPasteboard.general.string = currentText
+        writePasteboard(currentText)
         showToast("Copied")
     }
 
     func copy(_ text: String) {
-        UIPasteboard.general.string = text
+        writePasteboard(text)
         showToast("Copied")
     }
 
@@ -264,7 +290,8 @@ final class AppModel {
     func scenePhaseChanged(_ phase: ScenePhase) {
         if phase == .active, let text = pendingCopy {
             pendingCopy = nil
-            UIPasteboard.general.string = text
+            guard UIPasteboard.general.changeCount == ownPasteboardCount else { return }
+            writePasteboard(text)
             showToast("Copied")
         }
     }
@@ -277,8 +304,27 @@ final class AppModel {
 
     func reset() {
         cancelInFlight()
-        if state.phase == .interrupted, let url = state.audioFile { try? FileManager.default.removeItem(at: url) }
+        if state.phase == .interrupted, let url = state.audioFile {
+            try? FileManager.default.removeItem(at: url)
+            if let id = note?.id { onNoteDiscarded(id) }
+        }
         dispatch(.reset)
         note = nil; chips = []; chipsError = nil; refineError = nil; costText = nil
+    }
+}
+
+private final class OneShotWake: @unchecked Sendable {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var observers: [NSObjectProtocol] = []
+
+    init(_ continuation: CheckedContinuation<Void, Never>) { self.continuation = continuation }
+
+    func add(_ observer: NSObjectProtocol) { observers.append(observer) }
+
+    func fire() {
+        guard let continuation else { return }
+        self.continuation = nil
+        observers.forEach(NotificationCenter.default.removeObserver)
+        continuation.resume()
     }
 }
