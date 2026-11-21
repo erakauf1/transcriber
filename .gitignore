@@ -1,3 +1,7 @@
 node_modules/
 dist/
 .netlify/
+ios/Transcriber.xcodeproj/
+ios/TranscriberCore/.build/
+ios/TranscriberCore/.swiftpm/
+ios/build/

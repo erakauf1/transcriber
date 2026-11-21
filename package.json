@@ -8,7 +8,8 @@
     "preview": "vite preview",
     "test": "vitest run --passWithNoTests",
     "icons": "node scripts/make-icons.js",
-    "prompt-check": "node scripts/prompt-check.js"
+    "prompt-check": "node scripts/prompt-check.js",
+    "prompts": "node scripts/dump-prompts.js"
   },
   "devDependencies": {
     "jsdom": "^25.0.0",
