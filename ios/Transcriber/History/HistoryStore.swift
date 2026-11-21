@@ -191,6 +191,8 @@ final class HistoryStore {
     private func releaseAudio(of note: Note, snapshot s: NoteSnapshot, context: ModelContext) {
         guard s.rawTranscript != nil, let file = s.pendingAudioFile else { return }
         removeAudio([file])
+        // Keep the reference if the delete failed, or the launch sweep would revive it as an untranscribed duplicate.
+        guard !FileManager.default.fileExists(atPath: AudioFiles.url(named: file).path) else { return }
         note.pendingAudioFile = nil
         do { try context.save() } catch {
             log.error("Clearing the audio reference failed: \(error.localizedDescription, privacy: .public)")

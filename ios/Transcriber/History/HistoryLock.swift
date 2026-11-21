@@ -32,6 +32,8 @@ final class HistoryLock {
         isEvaluating = false
         self.context = nil
         isUnlocked = granted
+        // The prompt itself made the scene inactive; restart the clock from the grant so a slow passcode entry doesn't relock at once.
+        if granted, backgroundedAt != nil { backgroundedAt = .now }
         error = (failure as? LAError)?.code == .userCancel ? nil : failure?.localizedDescription
     }
 
@@ -45,7 +47,7 @@ final class HistoryLock {
 
     func didEnterBackground() {
         // Also called for .inactive: the app switcher holds the scene there without ever backgrounding it.
-        // A Face ID prompt makes the scene inactive too, so don't start the clock while one is up.
+        // A Face ID prompt makes the scene inactive too: keep the clock, but don't cover History under the prompt.
         backgroundedAt = backgroundedAt ?? .now
         guard !isEvaluating else { return }
         needsRelockCheck = true
