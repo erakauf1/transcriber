@@ -20,7 +20,7 @@ struct HistoryView: View {
             }
         }
         // Covers the app-switcher snapshot, which is taken when the scene goes inactive.
-        .overlay { if scenePhase != .active { Rectangle().fill(.regularMaterial).ignoresSafeArea() } }
+        .overlay { if scenePhase != .active || lock.needsRelockCheck { Rectangle().fill(.regularMaterial).ignoresSafeArea() } }
         .onDisappear { lock.lock() }
     }
 }
@@ -31,6 +31,15 @@ private struct HistoryList: View {
     @Query(sort: \Note.createdAt, order: .reverse) private var notes: [Note]
     @State private var exportURL: URL?
     @State private var exportError: String?
+
+    private var notesFingerprint: [Int] {
+        notes.map {
+            var hasher = Hasher()
+            hasher.combine($0.id); hasher.combine($0.status)
+            hasher.combine($0.rawCipher); hasher.combine($0.cleanedCipher)
+            return hasher.finalize()
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -49,6 +58,8 @@ private struct HistoryList: View {
             }
             .overlay { if notes.isEmpty { ContentUnavailableView("No notes yet", systemImage: "waveform") } }
             .task { store.refreshReadability() }
+            .onChange(of: notesFingerprint) { exportURL = nil; store.removeExports() }
+            .onDisappear { store.removeExports() }
             .navigationTitle("History")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
@@ -59,7 +70,7 @@ private struct HistoryList: View {
                         Button("Export") {
                             do { exportURL = try store.exportFile() } catch { exportError = error.localizedDescription }
                         }
-                        .disabled(notes.isEmpty)
+                        .disabled(!notes.contains { store.text(of: $0).readable })
                     }
                 }
             }

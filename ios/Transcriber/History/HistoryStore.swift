@@ -237,6 +237,14 @@ final class HistoryStore {
         hasUnreadable = false
     }
 
+    func removeExports() {
+        let tmp = FileManager.default.temporaryDirectory
+        let old = (try? FileManager.default.contentsOfDirectory(at: tmp, includingPropertiesForKeys: nil)) ?? []
+        for url in old where url.lastPathComponent.hasPrefix("transcriber-history-") && url.pathExtension == "json" {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
     func exportFile() throws -> URL {
         let notes = try container.mainContext.fetch(FetchDescriptor<Note>())
         let entries = notes.map(text(of:)).filter(\.readable).compactMap { d -> ExportEntry? in
@@ -244,11 +252,8 @@ final class HistoryStore {
             return ExportEntry(date: d.snapshot.createdAt, text: raw, cleaned: d.cleaned, language: d.snapshot.language,
                                provider: d.snapshot.provider, model: d.snapshot.model)
         }
+        removeExports()
         let tmp = FileManager.default.temporaryDirectory
-        let old = (try? FileManager.default.contentsOfDirectory(at: tmp, includingPropertiesForKeys: nil)) ?? []
-        for url in old where url.lastPathComponent.hasPrefix("transcriber-history-") && url.pathExtension == "json" {
-            try? FileManager.default.removeItem(at: url)
-        }
         let stamp = Date.now.formatted(.iso8601.year().month().day())
         let url = tmp.appending(path: "transcriber-history-\(stamp).json")
         try HistoryExport.encode(entries).write(to: url, options: [.atomic, .completeFileProtection])
