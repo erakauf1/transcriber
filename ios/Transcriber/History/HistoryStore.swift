@@ -68,7 +68,6 @@ final class HistoryStore {
         refreshReadability()
     }
 
-    /// Re-opens the on-disk store if we are on the in-memory fallback, then replays held writes.
     func retryPending() {
         guard !isFlushing else { return }
         if onFallback, let real = Self.openOnDisk() { container = real }
