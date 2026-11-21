@@ -17,6 +17,9 @@ struct IdleView: View {
             }
             if let banner = model.banner {
                 Text(banner).foregroundStyle(.red).multilineTextAlignment(.center)
+                if model.micDenied, let url = URL(string: UIApplication.openSettingsURLString) {
+                    Button("Open Settings") { UIApplication.shared.open(url) }
+                }
             }
             Spacer()
         }

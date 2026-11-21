@@ -17,8 +17,8 @@ struct NoteDetailView: View {
                     .buttonStyle(.borderedProminent)
                 } else {
                     Text(note.bestText).textSelection(.enabled)
-                        .environment(\.layoutDirection, note.snapshot.language == .he ? .rightToLeft : .leftToRight)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .environment(\.layoutDirection, note.snapshot.language == .he ? .rightToLeft : .leftToRight)
                     HStack {
                         Button("Copy", systemImage: "doc.on.doc") { model.copy(note.bestText) }.buttonStyle(.borderedProminent)
                         ShareLink(item: note.bestText).buttonStyle(.bordered)
@@ -28,6 +28,8 @@ struct NoteDetailView: View {
             .padding()
         }
         .navigationTitle(Text(note.snapshot.createdAt, format: .dateTime.day().month().hour().minute()))
-        .onAppear { if note.snapshot.status != .transcriptionFailed { model.copy(note.bestText) } }
+        .onAppear {
+            if note.readable, note.snapshot.status != .transcriptionFailed, !note.bestText.isEmpty { model.copy(note.bestText) }
+        }
     }
 }

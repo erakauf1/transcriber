@@ -2,8 +2,6 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(AppModel.self) private var model
-    @Environment(HistoryLock.self) private var lock
-    @Environment(\.scenePhase) private var scenePhase
     @State private var showSettings = false
     @State private var showHistory = false
 
@@ -40,11 +38,6 @@ struct ContentView: View {
             }
         }
         .animation(.default, value: model.toast)
-        .onChange(of: scenePhase) { _, phase in
-            model.scenePhaseChanged(phase)
-            if phase != .active { lock.didEnterBackground() }
-            if phase == .active { lock.didBecomeActive() }
-        }
         .onChange(of: model.state.phase) { _, phase in if phase != .idle { showHistory = false } }
     }
 }

@@ -31,6 +31,7 @@ private struct HistoryList: View {
     @Query(sort: \Note.createdAt, order: .reverse) private var notes: [Note]
     @State private var exportURL: URL?
     @State private var exportError: String?
+    @State private var confirmDelete = false
 
     private var notesFingerprint: [Int] {
         notes.map {
@@ -47,12 +48,16 @@ private struct HistoryList: View {
                 if store.hasUnreadable {
                     Section {
                         Text("History from a previous device can't be read.")
-                        Button("Clear history", role: .destructive) { store.deleteAll() }
+                        Button("Delete unreadable notes", role: .destructive) { confirmDelete = true }
                     }
                 }
                 ForEach(notes) { note in
                     let d = store.text(of: note)
-                    NavigationLink { NoteDetailView(note: d) } label: { NoteRow(note: d) }
+                    if d.readable {
+                        NavigationLink { NoteDetailView(note: d) } label: { NoteRow(note: d) }
+                    } else {
+                        NoteRow(note: d)
+                    }
                 }
                 .onDelete { $0.map { notes[$0] }.forEach(store.delete) }
             }
@@ -74,6 +79,11 @@ private struct HistoryList: View {
                     }
                 }
             }
+            .confirmationDialog("Delete notes that can't be read?", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("Delete unreadable notes", role: .destructive) { store.deleteUnreadable() }
+            } message: {
+                Text("This can't be undone. Notes that can be read are kept.")
+            }
             .alert("Export failed", isPresented: .constant(exportError != nil)) { Button("OK") { exportError = nil } } message: { Text(exportError ?? "") }
             .safeAreaInset(edge: .bottom) {
                 VStack {
@@ -92,8 +102,8 @@ private struct NoteRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(note.readable ? note.bestText : (note.locked ? "Locked" : "Can't be read")).lineLimit(2)
-                .environment(\.layoutDirection, note.snapshot.language == .he ? .rightToLeft : .leftToRight)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .environment(\.layoutDirection, note.snapshot.language == .he ? .rightToLeft : .leftToRight)
             HStack {
                 Text(note.snapshot.createdAt, format: .dateTime.day().month().hour().minute())
                 if note.snapshot.status == .transcriptionFailed { Text("· Not transcribed").foregroundStyle(.orange) }
