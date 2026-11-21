@@ -2,9 +2,35 @@ import SwiftData
 import SwiftUI
 
 struct HistoryView: View {
+    @Environment(HistoryLock.self) private var lock
+    @Environment(\.scenePhase) private var scenePhase
+
+    var body: some View {
+        Group {
+            if lock.isUnlocked {
+                HistoryList()
+            } else {
+                VStack(spacing: 16) {
+                    Image(systemName: "lock.fill").font(.largeTitle)
+                    Text("History is locked")
+                    if let e = lock.error { Text(e).font(.footnote).foregroundStyle(.red) }
+                    Button("Unlock") { Task { await lock.unlock() } }.buttonStyle(.borderedProminent)
+                }
+                .task { await lock.unlock() }
+            }
+        }
+        // Covers the app-switcher snapshot, which is taken when the scene goes inactive.
+        .overlay { if scenePhase != .active { Rectangle().fill(.regularMaterial).ignoresSafeArea() } }
+        .onDisappear { lock.lock() }
+    }
+}
+
+private struct HistoryList: View {
     @Environment(HistoryStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \Note.createdAt, order: .reverse) private var notes: [Note]
+    @State private var exportURL: URL?
+    @State private var exportError: String?
 
     var body: some View {
         NavigationStack {
@@ -24,10 +50,27 @@ struct HistoryView: View {
             .overlay { if notes.isEmpty { ContentUnavailableView("No notes yet", systemImage: "waveform") } }
             .task { store.refreshReadability() }
             .navigationTitle("History")
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) {
+                    if let exportURL {
+                        ShareLink(item: exportURL) { Label("Share export", systemImage: "square.and.arrow.up") }
+                    } else {
+                        Button("Export") {
+                            do { exportURL = try store.exportFile() } catch { exportError = error.localizedDescription }
+                        }
+                        .disabled(notes.isEmpty)
+                    }
+                }
+            }
+            .alert("Export failed", isPresented: .constant(exportError != nil)) { Button("OK") { exportError = nil } } message: { Text(exportError ?? "") }
             .safeAreaInset(edge: .bottom) {
-                Text("History is encrypted and stays on this iPhone. It is not backed up — use Export to keep a copy.")
-                    .font(.caption2).foregroundStyle(.secondary).padding()
+                VStack {
+                    Text("History is encrypted and stays on this iPhone. It is not backed up — use Export to keep a copy.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    if exportURL != nil { Text("The export is plain text once it leaves the app.").font(.caption2).foregroundStyle(.orange) }
+                }
+                .padding()
             }
         }
     }

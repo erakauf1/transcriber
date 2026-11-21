@@ -4,6 +4,7 @@ import SwiftUI
 struct TranscriberApp: App {
     @State private var model: AppModel
     @State private var history: HistoryStore
+    @State private var lock = HistoryLock()
 
     init() {
         let history = HistoryStore(container: HistoryStore.makeContainer())
@@ -19,6 +20,7 @@ struct TranscriberApp: App {
                 .id(ObjectIdentifier(history.container))
                 .environment(model)
                 .environment(history)
+                .environment(lock)
                 .modelContainer(history.container)
         }
     }
