@@ -36,7 +36,8 @@ final class AppModel {
     @ObservationIgnored private let recorder = Recorder()
     @ObservationIgnored private let client = LLMClient()
     @ObservationIgnored private let transcriber = Transcriber()
-    @ObservationIgnored private let cost = CostMeter()
+    // Replaced per note: usage callbacks from stale work still hold the old meter and can't pollute the new note's total.
+    @ObservationIgnored private var cost = CostMeter()
     @ObservationIgnored private var note: NoteSnapshot?
     @ObservationIgnored private var pendingCopy: String?
     // Captured when recording stops: the Keychain can't be read once the phone locks.
@@ -106,10 +107,10 @@ final class AppModel {
     }
 
     private func beginNote(id: UUID, createdAt: Date) {
-        generation += 1
+        cancelInFlight()
         openAIKey = settings.key(for: .openai)
         cleanupStep = settings.cleanupStep()
-        cost.reset(); costText = nil; chips = []; chipsError = nil; refineError = nil
+        cost = CostMeter(); costText = nil; chips = []; chipsError = nil; refineError = nil
         note = NoteSnapshot(id: id, createdAt: createdAt, status: .transcriptionFailed)
     }
 
@@ -120,6 +121,7 @@ final class AppModel {
         pipeline = Task {
             defer { task.end() }
             await transcribeStep()
+            guard !Task.isCancelled else { return }
             if state.phase == .cleaning { await cleanupStepRun() }
         }
     }
@@ -267,10 +269,15 @@ final class AppModel {
         }
     }
 
-    func reset() {
+    private func cancelInFlight() {
         pipeline?.cancel(); pipeline = nil
         generation += 1
         isRefining = false
+    }
+
+    func reset() {
+        cancelInFlight()
+        if state.phase == .interrupted, let url = state.audioFile { try? FileManager.default.removeItem(at: url) }
         dispatch(.reset)
         note = nil; chips = []; chipsError = nil; refineError = nil; costText = nil
     }
