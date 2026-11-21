@@ -33,10 +33,16 @@ final class Recorder: NSObject, AVAudioRecorderDelegate {
             AVNumberOfChannelsKey: 1,
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
         ]
-        let r = try AVAudioRecorder(url: try AudioFiles.newURL(), settings: settings)
-        r.delegate = self
-        r.isMeteringEnabled = true
-        guard r.record(forDuration: Self.maxDuration) else { throw StartError() }
+        let r: AVAudioRecorder
+        do {
+            r = try AVAudioRecorder(url: try AudioFiles.newURL(), settings: settings)
+            r.delegate = self
+            r.isMeteringEnabled = true
+            guard r.record(forDuration: Self.maxDuration) else { throw StartError() }
+        } catch {
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+            throw error
+        }
         recorder = r
         detector = SilenceDetector()
         meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
@@ -73,6 +79,10 @@ final class Recorder: NSObject, AVAudioRecorderDelegate {
 
     // Fires for the 5:00 cap, and also after our own stop() — by then `recorder` is nil, so it's a no-op.
     nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        Task { @MainActor in self.finish(.cap) }
+        let finished = ObjectIdentifier(recorder)
+        Task { @MainActor in
+            guard let current = self.recorder, ObjectIdentifier(current) == finished else { return }
+            self.finish(.cap)
+        }
     }
 }

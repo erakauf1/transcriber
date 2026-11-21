@@ -5,7 +5,7 @@ struct BackgroundTask {
     private let id: UIBackgroundTaskIdentifier
 
     // The expiration handler needs the id it is being created for, so it reads it through a box.
-    private final class IDBox: @unchecked Sendable { var id = UIBackgroundTaskIdentifier.invalid }
+    @MainActor private final class IDBox { var id = UIBackgroundTaskIdentifier.invalid }
 
     static func begin(_ name: String) -> BackgroundTask {
         let box = IDBox()
