@@ -26,8 +26,12 @@ enum Keychain {
 
     @discardableResult
     static func set(_ data: Data?, for account: String) -> Bool {
-        SecItemDelete(base(account) as CFDictionary)
-        guard let data else { return true }
+        guard let data else {
+            let status = SecItemDelete(base(account) as CFDictionary)
+            return status == errSecSuccess || status == errSecItemNotFound
+        }
+        let update = SecItemUpdate(base(account) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if update != errSecItemNotFound { return update == errSecSuccess }
         var add = base(account)
         add[kSecValueData as String] = data
         add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly

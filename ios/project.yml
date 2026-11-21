@@ -34,3 +34,5 @@ targets:
       path: Transcriber/Info.plist
       properties:
         UIBackgroundModes: [audio]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)

@@ -33,10 +33,11 @@ final class Settings {
         refineAnthropicModel = defaults.string(forKey: "refine_anthropic_model") ?? ModelDefaults.anthropic
     }
 
-    var hasOpenAIKey: Bool { !openAIKey.isEmpty }
+    var hasOpenAIKey: Bool { !key(for: .openai).isEmpty }
 
     func key(for provider: Provider) -> String {
-        switch provider { case .openai: openAIKey; case .anthropic: anthropicKey; case .openrouter: openRouterKey }
+        let raw = switch provider { case .openai: openAIKey; case .anthropic: anthropicKey; case .openrouter: openRouterKey }
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func cleanupStep() -> StepConfig {
