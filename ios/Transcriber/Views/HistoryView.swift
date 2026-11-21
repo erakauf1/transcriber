@@ -37,7 +37,7 @@ private struct NoteRow: View {
     let note: DecryptedNote
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(note.readable ? note.bestText : "Can't be read").lineLimit(2)
+            Text(note.readable ? note.bestText : (note.locked ? "Locked" : "Can't be read")).lineLimit(2)
                 .environment(\.layoutDirection, note.snapshot.language == .he ? .rightToLeft : .leftToRight)
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack {

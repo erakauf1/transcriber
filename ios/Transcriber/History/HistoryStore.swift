@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Observation
+import OSLog
 import SwiftData
 import TranscriberCore
 import UIKit
@@ -10,14 +11,18 @@ struct DecryptedNote {
     let cleaned: String?
     let readable: Bool
     let snapshot: NoteSnapshot
+    var locked = false
     var bestText: String { cleaned ?? raw ?? "" }
 }
 
+private let log = Logger(subsystem: "com.example.transcriber", category: "history")
+
 @MainActor @Observable
 final class HistoryStore {
-    let container: ModelContainer
+    private(set) var container: ModelContainer
     private(set) var hasUnreadable = false
     @ObservationIgnored private var queued: [NoteSnapshot] = []
+    @ObservationIgnored private var deletedIDs: Set<UUID> = []
     @ObservationIgnored private var cachedCipher: NoteCipher?
     private static let keyAccount = "history_key"
 
@@ -25,11 +30,13 @@ final class HistoryStore {
         self.container = container
         NotificationCenter.default.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification,
                                                object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.flushQueued() }
+            MainActor.assumeIsolated { self?.protectedDataBecameAvailable() }
         }
     }
 
-    static func makeContainer() -> ModelContainer {
+    private var onFallback: Bool { container.configurations.contains { $0.isStoredInMemoryOnly } }
+
+    static func openOnDisk() -> ModelContainer? {
         let dir = URL.applicationSupportDirectory.appending(path: "History", directoryHint: .isDirectory)
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true,
@@ -40,36 +47,81 @@ final class HistoryStore {
             let config = ModelConfiguration(url: dir.appending(path: "History.store"))
             return try ModelContainer(for: Note.self, configurations: config)
         } catch {
-            return try! ModelContainer(for: Note.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+            log.error("Opening the history store failed: \(error.localizedDescription, privacy: .public)")
+            return nil
         }
     }
 
-    /// nil while the phone is locked (the key is WhenUnlockedThisDeviceOnly).
-    private func cipher() -> NoteCipher? {
-        if let cachedCipher { return cachedCipher }
+    static func makeContainer() -> ModelContainer {
+        if let disk = openOnDisk() { return disk }
+        return try! ModelContainer(for: Note.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+    }
+
+    // A launch while locked can't open the .complete store; once unlocked, swap the real one in and replay the queue.
+    private func protectedDataBecameAvailable() {
+        if onFallback, let real = Self.openOnDisk() { container = real }
+        flushQueued()
+    }
+
+    private enum KeyState { case ready(NoteCipher), missing, locked }
+
+    /// Never creates a key: safe to call from view bodies.
+    private func existingKey() -> KeyState {
+        if let cachedCipher { return .ready(cachedCipher) }
         switch Keychain.read(Self.keyAccount) {
         case .found(let data):
-            cachedCipher = NoteCipher(key: SymmetricKey(data: data))
-        case .notFound:
+            let cipher = NoteCipher(key: SymmetricKey(data: data))
+            cachedCipher = cipher
+            return .ready(cipher)
+        case .notFound: return .missing
+        case .unavailable: return .locked
+        }
+    }
+
+    /// Only writes may create the key. nil while the phone is locked (the key is WhenUnlockedThisDeviceOnly).
+    private func cipherForWrite() -> NoteCipher? {
+        switch existingKey() {
+        case .ready(let cipher): return cipher
+        case .locked: return nil
+        case .missing:
             let key = SymmetricKey(size: .bits256)
             guard Keychain.set(key.withUnsafeBytes { Data($0) }, for: Self.keyAccount) else { return nil }
             cachedCipher = NoteCipher(key: key)
-        case .unavailable:
-            return nil
+            return cachedCipher
         }
-        return cachedCipher
+    }
+
+    private func enqueue(_ s: NoteSnapshot) {
+        queued.removeAll { $0.id == s.id }
+        queued.append(s)
     }
 
     func upsert(_ s: NoteSnapshot) {
+        guard !deletedIDs.contains(s.id) else { return }
         // The store is .complete and the key is WhenUnlocked: while locked, hold the write in memory.
-        guard UIApplication.shared.isProtectedDataAvailable, let cipher = cipher() else {
-            queued.removeAll { $0.id == s.id }
-            queued.append(s)
+        guard UIApplication.shared.isProtectedDataAvailable, !onFallback, let cipher = cipherForWrite() else {
+            enqueue(s)
+            return
+        }
+        let rawCipher: Data?, cleanedCipher: Data?
+        do {
+            rawCipher = try s.rawTranscript.map(cipher.seal)
+            cleanedCipher = try s.cleanedText.map(cipher.seal)
+        } catch {
+            log.error("Sealing a note failed: \(error.localizedDescription, privacy: .public)")
+            enqueue(s)
             return
         }
         let context = container.mainContext
         let id = s.id
-        let existing = try? context.fetch(FetchDescriptor<Note>(predicate: #Predicate { $0.id == id })).first
+        let existing: Note?
+        do {
+            existing = try context.fetch(FetchDescriptor<Note>(predicate: #Predicate { $0.id == id })).first
+        } catch {
+            log.error("Fetching a note failed: \(error.localizedDescription, privacy: .public)")
+            enqueue(s)
+            return
+        }
         let note = existing ?? Note(id: s.id, createdAt: s.createdAt, status: s.status.rawValue)
         if existing == nil { context.insert(note) }
         note.status = s.status.rawValue
@@ -78,9 +130,15 @@ final class HistoryStore {
         note.model = s.model
         note.costUsd = s.costUsd
         note.pendingAudioFile = s.pendingAudioFile
-        note.rawCipher = try? s.rawTranscript.map(cipher.seal)
-        note.cleanedCipher = try? s.cleanedText.map(cipher.seal)
-        try? context.save()
+        note.rawCipher = rawCipher
+        note.cleanedCipher = cleanedCipher
+        do {
+            try context.save()
+        } catch {
+            log.error("Saving a note failed: \(error.localizedDescription, privacy: .public)")
+            context.rollback()
+            enqueue(s)
+        }
     }
 
     func flushQueued() {
@@ -90,7 +148,13 @@ final class HistoryStore {
     }
 
     func text(of note: Note) -> DecryptedNote {
-        let cipher = cipher()
+        var locked = false
+        var cipher: NoteCipher?
+        switch existingKey() {
+        case .ready(let c): cipher = c
+        case .locked: locked = true
+        case .missing: break
+        }
         func open(_ data: Data?) -> (String?, Bool) {
             guard let data else { return (nil, true) }
             guard let cipher, let text = try? cipher.open(data) else { return (nil, false) }
@@ -104,24 +168,57 @@ final class HistoryStore {
                                     provider: note.provider.flatMap(Provider.init(rawValue:)), model: note.model,
                                     costUsd: note.costUsd, status: NoteStatus(rawValue: note.status) ?? .done,
                                     pendingAudioFile: note.pendingAudioFile)
-        return DecryptedNote(raw: raw, cleaned: cleaned, readable: readable, snapshot: snapshot)
+        return DecryptedNote(raw: raw, cleaned: cleaned, readable: readable, snapshot: snapshot, locked: locked && !readable)
     }
 
     // Kept out of text(of:): that runs inside view bodies, where mutating observed state loops.
+    // A locked phone is not "unreadable": only a reachable key that fails to open (or is gone) counts.
     func refreshReadability() {
         let notes = (try? container.mainContext.fetch(FetchDescriptor<Note>())) ?? []
-        hasUnreadable = notes.contains { !text(of: $0).readable }
+        hasUnreadable = notes.contains { let d = text(of: $0); return !d.readable && !d.locked }
+    }
+
+    private func removeAudio(_ files: [String]) {
+        files.forEach { try? FileManager.default.removeItem(at: AudioFiles.url(named: $0)) }
     }
 
     func delete(_ note: Note) {
-        if let file = note.pendingAudioFile { try? FileManager.default.removeItem(at: AudioFiles.url(named: file)) }
-        container.mainContext.delete(note)
-        try? container.mainContext.save()
+        let id = note.id
+        let files = [note.pendingAudioFile].compactMap { $0 }
+        let context = container.mainContext
+        context.delete(note)
+        do {
+            try context.save()
+        } catch {
+            log.error("Deleting a note failed: \(error.localizedDescription, privacy: .public)")
+            context.rollback()
+            return
+        }
+        queued.removeAll { $0.id == id }
+        deletedIDs.insert(id)
+        removeAudio(files)
     }
 
     func deleteAll() {
-        let all = (try? container.mainContext.fetch(FetchDescriptor<Note>())) ?? []
-        all.forEach(delete)
+        let context = container.mainContext
+        let all: [Note]
+        do { all = try context.fetch(FetchDescriptor<Note>()) } catch {
+            log.error("Fetching notes to delete failed: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        let ids = all.map(\.id) + queued.map(\.id)
+        let files = all.compactMap(\.pendingAudioFile)
+        all.forEach(context.delete)
+        do {
+            try context.save()
+        } catch {
+            log.error("Clearing history failed: \(error.localizedDescription, privacy: .public)")
+            context.rollback()
+            return
+        }
+        queued.removeAll()
+        deletedIDs.formUnion(ids)
+        removeAudio(files)
         hasUnreadable = false
     }
 
@@ -132,8 +229,13 @@ final class HistoryStore {
             return ExportEntry(date: d.snapshot.createdAt, text: raw, cleaned: d.cleaned, language: d.snapshot.language,
                                provider: d.snapshot.provider, model: d.snapshot.model)
         }
+        let tmp = FileManager.default.temporaryDirectory
+        let old = (try? FileManager.default.contentsOfDirectory(at: tmp, includingPropertiesForKeys: nil)) ?? []
+        for url in old where url.lastPathComponent.hasPrefix("transcriber-history-") && url.pathExtension == "json" {
+            try? FileManager.default.removeItem(at: url)
+        }
         let stamp = Date.now.formatted(.iso8601.year().month().day())
-        let url = FileManager.default.temporaryDirectory.appending(path: "transcriber-history-\(stamp).json")
+        let url = tmp.appending(path: "transcriber-history-\(stamp).json")
         try HistoryExport.encode(entries).write(to: url, options: [.atomic, .completeFileProtection])
         return url
     }
