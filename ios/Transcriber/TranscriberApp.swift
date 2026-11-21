@@ -2,8 +2,9 @@ import SwiftUI
 
 @main
 struct TranscriberApp: App {
-    @State private var settings = Settings()
+    @State private var model = AppModel(settings: Settings())
+
     var body: some Scene {
-        WindowGroup { SettingsView(settings: settings) }
+        WindowGroup { ContentView().environment(model) }
     }
 }
