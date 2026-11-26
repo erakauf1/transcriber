@@ -52,4 +52,4 @@ for (let run = 1; run <= runs; run++) {
 }
 
 console.log(`\n=== summary ===\n${summary.join('\n')}`);
-process.exit(failures ? 1 : 0);
+process.exitCode = failures ? 1 : 0;
