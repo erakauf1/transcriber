@@ -77,9 +77,6 @@ function main() {
     writeFileSync(join(outDir, `icon-${size}.png`), makePng(size));
     console.log(`wrote icon-${size}.png`);
   }
-  const iosIcon = join(dirname(fileURLToPath(import.meta.url)), '..', 'ios', 'Transcriber', 'Assets.xcassets', 'AppIcon.appiconset', 'icon-1024.png');
-  writeFileSync(iosIcon, makePng(1024));
-  console.log('wrote ios icon-1024.png');
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) main();
