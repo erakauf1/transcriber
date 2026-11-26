@@ -132,9 +132,9 @@ The current "אה אז אני חושב ש- שנצטרך לדחות" and taxi/נ�
 dropped: the user examples cover fillers and repeated words, and the נתב"ג
 abbreviation stays as a rule.
 
-English: three new pairs written in the same style (a short update with one
-sentence per line, a list with a lead-in, and the Raanana name pair with a
-period). They are a stand-in until the user adds real English examples; the
+English: four pairs in the same style: the Raanana name pair and the 24-hour
+dinner pair (both now ending with a period), plus two new ones (a short update
+with one sentence per line, and a list with a lead-in). They are a stand-in until the user adds real English examples; the
 spec does not claim they reflect the user's taste.
 
 ### 3. iOS parity

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { buildFewShotMessages } from '../src/cleanup.js';
 import { CHECK_NAMES, runChecks } from '../scripts/cleanup-checks.js';
 
 const examples = JSON.parse(readFileSync(new URL('../fixtures/cleanup-examples.json', import.meta.url), 'utf8'));
@@ -28,6 +29,15 @@ describe('fixtures/cleanup-examples.json', () => {
     for (const e of examples.filter((x) => x.role === 'eval')) {
       const failed = runChecks(e.expected, e.checks).filter((r) => !r.ok);
       expect(failed, e.name).toEqual([]);
+    }
+  });
+
+  it('has every few-shot example in the cleanup few-shot messages, verbatim', () => {
+    for (const e of examples.filter((x) => x.role === 'few-shot')) {
+      const messages = buildFewShotMessages(e.language);
+      const i = messages.findIndex((m) => m.role === 'user' && m.content === e.input);
+      expect(i, e.name).toBeGreaterThanOrEqual(0);
+      expect(messages[i + 1], e.name).toEqual({ role: 'assistant', content: e.expected });
     }
   });
 });
