@@ -9,6 +9,7 @@
     "test": "vitest run --passWithNoTests",
     "icons": "node scripts/make-icons.js",
     "prompt-check": "node scripts/prompt-check.js",
+    "cleanup-eval": "node scripts/cleanup-eval.js",
     "prompts": "node scripts/dump-prompts.js"
   },
   "devDependencies": {
