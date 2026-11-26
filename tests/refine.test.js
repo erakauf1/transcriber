@@ -19,6 +19,14 @@ describe('generateRefinementChips', () => {
     expect(result).toEqual(chips);
   });
 
+  it('tolerates a fenced Claude reply', async () => {
+    const text = '```json\n{"chips":[{"label":"קצר","instruction":"Make shorter"}]}\n```';
+    vi.stubGlobal('fetch', vi.fn(async () => okResponse({ content: [{ type: 'text', text }] })));
+
+    const result = await generateRefinementChips('text', 'he', { provider: 'anthropic', model: 'claude-opus-5-5', apiKey: 'k' });
+    expect(result).toEqual([{ label: 'קצר', instruction: 'Make shorter' }]);
+  });
+
   it('caps results at 4 chips', async () => {
     const chips = Array.from({ length: 6 }, (_, i) => ({
       label: `Option ${i}`,

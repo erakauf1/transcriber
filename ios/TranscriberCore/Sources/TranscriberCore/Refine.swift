@@ -27,7 +27,10 @@ public enum Refine {
     }
 
     public static func parseChips(_ content: String) throws -> [RefineChip] {
-        guard let parsed = try? JSONSerialization.jsonObject(with: Data(content.utf8)) else {
+        // Anthropic has no JSON mode, so Claude may fence the reply or add a preface.
+        guard let start = content.firstIndex(where: { $0 == "{" || $0 == "[" }),
+              let end = content.lastIndex(where: { $0 == "}" || $0 == "]" }), start < end,
+              let parsed = try? JSONSerialization.jsonObject(with: Data(content[start...end].utf8)) else {
             throw ServiceError("Could not parse suggestions")
         }
         let dict = parsed as? [String: Any]

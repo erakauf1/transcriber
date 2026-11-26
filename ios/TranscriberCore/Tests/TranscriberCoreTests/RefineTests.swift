@@ -10,6 +10,11 @@ struct RefineTests {
         #expect(try Refine.parseChips(#"[{"label":"a","instruction":"b"}]"#).count == 1)
         #expect(try Refine.parseChips(#"{"options":[{"label":"a","instruction":"b"}]}"#).count == 1)
     }
+    @Test func toleratesFencedOrPrefacedReply() throws {
+        let fenced = "```json\n{\"chips\":[{\"label\":\"a\",\"instruction\":\"b\"}]}\n```"
+        #expect(try Refine.parseChips(fenced).count == 1)
+        #expect(try Refine.parseChips("Here you go:\n[{\"label\":\"a\",\"instruction\":\"b\"}]").count == 1)
+    }
     @Test func capsAtFour() throws {
         let five = (1...5).map { #"{"label":"l\#($0)","instruction":"i"}"# }.joined(separator: ",")
         #expect(try Refine.parseChips("[\(five)]").count == 4)

@@ -35,8 +35,11 @@ export async function generateRefinementChips(text, language, { provider, model,
     throw new RefineError(err.message.replace(/^Request failed/, 'Could not generate suggestions').replace(/^Empty response/, 'No suggestions returned'));
   }
 
+  // Anthropic has no JSON mode, so Claude may fence the reply or add a preface.
+  const start = content.search(/[[{]/);
+  const end = Math.max(content.lastIndexOf('}'), content.lastIndexOf(']'));
   let parsed;
-  try { parsed = JSON.parse(content); } catch { throw new RefineError('Could not parse suggestions'); }
+  try { parsed = JSON.parse(content.slice(start, end + 1)); } catch { throw new RefineError('Could not parse suggestions'); }
 
   const arr = Array.isArray(parsed) ? parsed : (parsed.chips || parsed.options || null);
   if (!Array.isArray(arr) || arr.length === 0) throw new RefineError('No valid suggestions returned');
