@@ -10,7 +10,9 @@ real Hebrew notes with the text they actually want to send
 (`fixtures/cleanup-examples.json`). Names of people, companies and places
 in them were swapped for made-up ones of the same kind (the few-shot pairs
 ship in the public web bundle and the iOS app); the patterns under test, such
-as a misheard name that appears correctly later, are preserved. Those expected
+as a misheard name that appears correctly later, are preserved. In example 2
+the misheard form is an ordinary word (לימוד for לימור), as in the original,
+so the correction never merges two plausible people. Those expected
 outputs are a polished rewrite, and they break the current rules on purpose:
 
 | What the user expects | Current rule it breaks | Examples |
@@ -19,7 +21,7 @@ outputs are a polished rewrite, and they break the current rules on purpose:
 | Written register ("ואינה עוסקת", "במטרה להשיג", "ביצענו") | "Don't change slang or personal tone into formal writing" | 1, 2, 4 |
 | Additions inferred from context: headings ("בנושא עמדות טעינה", "רק עדכון קצר"), details ("ומה העלויות", "מהבנק", "מרגע האישור", "רשמי") and a closing line that states the purpose ("כך נוכל לבחון בנפרד…") | "Don't add content … that was not spoken" | 2, 4 |
 | A hedge dropped ("אם אני זוכר נכון") | "Don't summarize" | 4 |
-| A misheard name fixed from the same message (מורית → אורית) | "Never change a name" | 2 |
+| A misheard name fixed from the same message (לימוד → לימור) | "Never change a name" | 2 |
 | Pronoun/gender agreement fixed (איתה → איתו, from "הוא בדק") | "never change one valid word to another" | 3 |
 | Attention-getter dropped ("שמע,"), greeting and sign-off kept ("בוקר טוב", "יום טוב") | none | 4, 5 |
 | Spoken punctuation turned into text ("slash" → "ו") | none | 5 |
@@ -160,7 +162,7 @@ Per example:
 
 - `he-legal-steps` (eval): `endsWithPeriod`, `mustInclude: ["מיכל", "גלבוע"]`.
 - `he-charging-stations` (eval): `endsWithPeriod`, `hasNumberedList`,
-  `mustInclude: ["אורית", "וולטקו", "ABB"]`, `mustExclude: ["מורית"]`.
+  `mustInclude: ["לימור", "נגה", "ABB"]`, `mustExclude: ["לימוד"]`.
 - `he-stock-showroom` (few-shot): no checks run.
 - `he-car-order-update` (few-shot): no checks run.
 - `he-podcast-dollar` (eval): `endsWithPeriod`, `noLeadingOpener: ["שמע"]`,
@@ -168,10 +170,11 @@ Per example:
 
 Two regression cases written for this spec (role `eval`, notes say so):
 
-- `he-unsupported-name`: a short Hebrew note naming a place spelled oddly
-  once, with nothing else in the message pointing to another spelling.
-  `mustInclude` the odd spelling exactly. Guards the רעננה→הרצליה class of
-  bug under the looser name rule.
+- `he-unsupported-name`: a short Hebrew note naming a correctly spelled but
+  uncommon real place (גן יאשיה), with nothing in the message pointing to
+  another name. `mustInclude` it exactly. Guards the רעננה→הרצליה class of
+  bug (a real name swapped for a better-known one) under the looser name
+  rule.
 - `he-time-of-day`: an afternoon meeting time spoken in words.
   `mustInclude` the 24-hour form (e.g. `16:30`).
 
@@ -179,11 +182,13 @@ Two regression cases written for this spec (role `eval`, notes say so):
 
 - The pipeline in `scripts/prompt-check.js` (corrections → English terms →
   cleanup with relevant rules → corrections) moves into an exported
-  `runPipeline(text, language, opts)` in `scripts/pipeline.js`, used by both
+  `runPipeline(text, { provider, model, apiKey, rules, language })` in
+  `scripts/pipeline.js` (language is detected when omitted), used by both
   scripts so they cannot drift.
 - Same environment variables as `prompt-check` (`PROVIDER`, `MODEL`, the key
   variable, optional `CORRECTIONS`), plus `RUNS` (default 1).
-- For each `eval` entry and each run, prints input, expected, actual, then one
+- For each `eval` entry and each run, prints input, the text after the
+  English-terms pass when it differs from the input, expected, actual, then one
   ✓/✗ line per check. Ends with a summary: checks passed / total per example.
   Exits non-zero if any check failed, so it can be used in a loop.
 - Check logic lives in `scripts/cleanup-checks.js` as pure functions
@@ -211,15 +216,18 @@ Two regression cases written for this spec (role `eval`, notes say so):
 1. Build the eval harness (sections 4–5) and its unit tests first, with the
    prompt untouched.
 2. Run `npm run cleanup-eval` on the current prompt and save the output to
-   `docs/superpowers/evals/2026-11-27-baseline.txt`, together with a
-   `prompt-check` run over `fixtures/transcripts.json` (the only English
-   coverage).
+   `docs/superpowers/evals/2026-11-27-baseline-eval.txt`, together with a
+   `prompt-check` run over `fixtures/transcripts.json` saved to
+   `docs/superpowers/evals/2026-11-27-baseline-transcripts.txt` (the only
+   English coverage). A regression case whose checks other than
+   `endsWithPeriod` fail on the baseline is not guarding a regression: rewrite
+   or drop it before changing the prompt.
 3. Change the prompt, few-shots and Swift copy (sections 1–3, 6).
 4. Re-run both and compare against the baseline. English output from
    `transcripts.json` is reviewed by eye, since there are no English checks.
 
 `englishTerms.js` runs before cleanup in this pipeline. It never touches
-names (טראמפ, וולטקו, אורית are excluded by its prompt and its Latin-only
+names (טראמפ, נגה, לימור are excluded by its prompt and its Latin-only
 guard), so the name checks are safe. It may turn a loanword such as מאקרו
 into Latin letters, so no check depends on loanword spelling.
 

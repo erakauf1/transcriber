@@ -21,6 +21,11 @@
 - Swift tests need Xcode: `cd ios/TranscriberCore && swift test`. If `swift test` fails with "plugin for module 'TestingMacros' not found", Xcode is not selected; tell the user instead of working around it.
 - Fixture names are anonymized. Do not reintroduce real names (the originals were removed on purpose).
 
+## Execution notes
+
+- Tasks 5 and 8 need the user's approval and their API key. Run them in the main session, never in a subagent.
+- Task 7 needs Xcode for `swift test`.
+
 ## File Map
 
 | File | Status | Responsibility |
@@ -83,13 +88,13 @@ describe('runChecks', () => {
   });
 
   it('mustInclude yields one result per string', () => {
-    const results = runChecks('סיכום שיחה עם אורית מוולטקו', { mustInclude: ['אורית', 'ABB'] });
-    expect(results.map((r) => [r.name, r.ok])).toEqual([['mustInclude "אורית"', true], ['mustInclude "ABB"', false]]);
+    const results = runChecks('סיכום שיחה עם לימור מנגה', { mustInclude: ['לימור', 'ABB'] });
+    expect(results.map((r) => [r.name, r.ok])).toEqual([['mustInclude "לימור"', true], ['mustInclude "ABB"', false]]);
   });
 
   it('mustExclude fails when the string appears', () => {
-    expect(one('שיחה עם מורית', { mustExclude: ['מורית'] }).ok).toBe(false);
-    expect(one('שיחה עם אורית', { mustExclude: ['מורית'] }).ok).toBe(true);
+    expect(one('שיחה עם לימוד', { mustExclude: ['לימוד'] }).ok).toBe(false);
+    expect(one('שיחה עם לימור', { mustExclude: ['לימוד'] }).ok).toBe(true);
   });
 
   it('hasNumberedList needs lines starting with 1. and 2.', () => {
@@ -252,10 +257,10 @@ Write `fixtures/cleanup-examples.json` with exactly this content (inputs and exp
     "name": "he-charging-stations",
     "language": "he",
     "role": "eval",
-    "note": "User example 2. A misheard name (מורית) that appears correctly later (אורית); numbered list with a lead-in.",
-    "checks": { "endsWithPeriod": true, "hasNumberedList": true, "mustInclude": ["אורית", "וולטקו", "ABB"], "mustExclude": ["מורית"] },
-    "input": "סיכום שיחה עם מורית מוולטקו. אז וולטקו מספקים רק את עמדת הטעינה. הם לא מתעסקים בניהול ובגבייה. עמדת הטעינה שהם מציעים זה נקרא עמדת טעינה מנוהלת. מנוהלת גם מבחינת בקרת עומסים וגם מבחינת גבייה. הסוג שהיא קראה לה זה ABB. ברגע שהם, במידה והם, החברה, במידה ואנחנו בוחרים את חברת וולטקו, אז הם מתקינים את העמדות ובעצם אנחנו כבניין רשאים לחבור לאיזה ספק שאנחנו רוצים, לפי התנאים שאותו ספק נותן. אורית אמרה שיש לה כמה ספקים שונים שאפשר להתחבר אליהם בעצם עם העמדה החכמה שלהם. מה שסיכמתי עם אורית זה קודם כל שהיא תשלח לי את העמדה, בעצם את קטלוג, את ההסבר על העמדה שהם מציעים להתקין. ושתיים, את מספר אנשי קשר מספקים שונים שאנחנו בעצם עתידית נוכל להתחבר אליהם כדי להבין, כדי שנוכל לעשות שיחה קצרה עם אותם ספקים ולהבין בעצם מה המסגרת השירות שאנחנו נקבל או נוכל לקבל מאותם ספקים",
-    "expected": "סיכום שיחה עם אורית מוולטקו בנושא עמדות טעינה:\n\nוולטקו מספקת ומתקינה את עמדות הטעינה בלבד, ואינה עוסקת בניהול השוטף או בגבייה.\n\nהעמדה שהם מציעים היא עמדת טעינה חכמה של ABB, התומכת בניהול ובקרת עומסים ובמערכות גבייה.\n\nבמידה שנבחר בוולטקו, הם יתקינו את העמדות, ואנחנו כבניין נהיה חופשיים לבחור ספק לניהול ולגבייה, בהתאם לתנאים שכל ספק מציע.\n\nאורית ציינה שיש מספר ספקים שאפשר להתחבר אליהם באמצעות העמדות שלהם.\n\nסיכמתי עם אורית שהיא תשלח לי שני דברים:\n1. קטלוג ומפרט טכני של עמדת הטעינה שהם מציעים להתקין.\n2. פרטי קשר של מספר ספקים לניהול ולגבייה, כדי שנוכל לשוחח איתם, להבין אילו שירותים הם מציעים, מה התנאים שלהם ומה העלויות.\n\nכך נוכל לבחון בנפרד את בחירת עמדות הטעינה ואת בחירת ספק הניהול והגבייה."
+    "note": "User example 2. A misheard name (לימוד) that appears correctly later (לימור); numbered list with a lead-in.",
+    "checks": { "endsWithPeriod": true, "hasNumberedList": true, "mustInclude": ["לימור", "נגה", "ABB"], "mustExclude": ["לימוד"] },
+    "input": "סיכום שיחה עם לימוד מנגה. אז נגה מספקים רק את עמדת הטעינה. הם לא מתעסקים בניהול ובגבייה. עמדת הטעינה שהם מציעים זה נקרא עמדת טעינה מנוהלת. מנוהלת גם מבחינת בקרת עומסים וגם מבחינת גבייה. הסוג שהיא קראה לה זה ABB. ברגע שהם, במידה והם, החברה, במידה ואנחנו בוחרים את חברת נגה, אז הם מתקינים את העמדות ובעצם אנחנו כבניין רשאים לחבור לאיזה ספק שאנחנו רוצים, לפי התנאים שאותו ספק נותן. לימור אמרה שיש לה כמה ספקים שונים שאפשר להתחבר אליהם בעצם עם העמדה החכמה שלהם. מה שסיכמתי עם לימור זה קודם כל שהיא תשלח לי את העמדה, בעצם את קטלוג, את ההסבר על העמדה שהם מציעים להתקין. ושתיים, את מספר אנשי קשר מספקים שונים שאנחנו בעצם עתידית נוכל להתחבר אליהם כדי להבין, כדי שנוכל לעשות שיחה קצרה עם אותם ספקים ולהבין בעצם מה המסגרת השירות שאנחנו נקבל או נוכל לקבל מאותם ספקים",
+    "expected": "סיכום שיחה עם לימור מנגה בנושא עמדות טעינה:\n\nנגה מספקת ומתקינה את עמדות הטעינה בלבד, ואינה עוסקת בניהול השוטף או בגבייה.\n\nהעמדה שהם מציעים היא עמדת טעינה חכמה של ABB, התומכת בניהול ובקרת עומסים ובמערכות גבייה.\n\nבמידה שנבחר בנגה, הם יתקינו את העמדות, ואנחנו כבניין נהיה חופשיים לבחור ספק לניהול ולגבייה, בהתאם לתנאים שכל ספק מציע.\n\nלימור ציינה שיש מספר ספקים שאפשר להתחבר אליהם באמצעות העמדות שלהם.\n\nסיכמתי עם לימור שהיא תשלח לי שני דברים:\n1. קטלוג ומפרט טכני של עמדת הטעינה שהם מציעים להתקין.\n2. פרטי קשר של מספר ספקים לניהול ולגבייה, כדי שנוכל לשוחח איתם, להבין אילו שירותים הם מציעים, מה התנאים שלהם ומה העלויות.\n\nכך נוכל לבחון בנפרד את בחירת עמדות הטעינה ואת בחירת ספק הניהול והגבייה."
   },
   {
     "name": "he-stock-showroom",
@@ -288,10 +293,10 @@ Write `fixtures/cleanup-examples.json` with exactly this content (inputs and exp
     "name": "he-unsupported-name",
     "language": "he",
     "role": "eval",
-    "note": "Regression case written for the spec, not a user example. An odd place spelling with nothing in the message supporting another form must stay as spoken (the רעננה→הרצליה class of bug).",
-    "checks": { "endsWithPeriod": true, "mustInclude": ["כפר יונא", "20:00"], "mustExclude": ["כפר יונה"] },
-    "input": "אה אני עדיין בכפר יונא, כאילו, אז ניפגש שם בשמונה בערב",
-    "expected": "אני עדיין בכפר יונא, אז ניפגש שם ב-20:00."
+    "note": "Regression case written for the spec, not a user example. A correctly spelled but uncommon real place must stay as spoken and never turn into a better-known one (the רעננה→הרצליה class of bug).",
+    "checks": { "endsWithPeriod": true, "mustInclude": ["גן יאשיה", "20:00"] },
+    "input": "אה אני עדיין בגן יאשיה, כאילו, אז ניפגש שם בשמונה בערב",
+    "expected": "אני עדיין בגן יאשיה, אז ניפגש שם ב-20:00."
   },
   {
     "name": "he-time-of-day",
@@ -482,8 +487,8 @@ for (const { name, text } of fixtures) {
 
 - [ ] **Step 5: Run the tests**
 
-Run: `npx vitest run tests/pipeline.test.js && node scripts/prompt-check.js; echo "exit $?"`
-Expected: pipeline tests PASS (3). With no key in the environment, `prompt-check` prints `Set ANTHROPIC_API_KEY first: ANTHROPIC_API_KEY=... npm run prompt-check` and `exit 1`. (If the user's shell already exports a key, skip the `prompt-check` part: it would call the API.)
+Run: `npx vitest run tests/pipeline.test.js && env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY -u OPENROUTER_API_KEY -u PROVIDER node scripts/prompt-check.js; echo "exit $?"`
+Expected: pipeline tests PASS (3), then `Set ANTHROPIC_API_KEY first: ANTHROPIC_API_KEY=... npm run prompt-check` and `exit 1`. The `env -u` keeps an exported key from triggering a paid API call.
 
 - [ ] **Step 6: Commit**
 
@@ -534,7 +539,9 @@ for (let run = 1; run <= runs; run++) {
     console.log(`--- input ---\n${ex.input}`);
     console.log(`--- expected ---\n${ex.expected}`);
     try {
-      const { cleaned } = await runPipeline(ex.input, { ...config, language: ex.language });
+      const { withTerms, cleaned } = await runPipeline(ex.input, { ...config, language: ex.language });
+      // A check can fail because the English-terms pass rewrote a word, not because of cleanup.
+      if (withTerms !== ex.input) console.log(`--- after english terms ---\n${withTerms}`);
       console.log(`--- actual ---\n${cleaned}`);
       const results = runChecks(cleaned, ex.checks);
       for (const r of results) console.log(`${r.ok ? '✓' : '✗'} ${r.name}${r.detail ? ` (${r.detail})` : ''}`);
@@ -571,7 +578,7 @@ ANTHROPIC_API_KEY=... RUNS=2 npm run cleanup-eval                               
 
 - [ ] **Step 4: Smoke-test without a key**
 
-Run: `env -u ANTHROPIC_API_KEY npm run -s cleanup-eval; echo "exit $?"`
+Run: `env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY -u OPENROUTER_API_KEY -u PROVIDER npm run -s cleanup-eval; echo "exit $?"`
 Expected: `Set ANTHROPIC_API_KEY first: ANTHROPIC_API_KEY=... npm run cleanup-eval` and `exit 1`.
 
 Run: `npm test`
@@ -609,6 +616,8 @@ npm run -s prompt-check 2>&1 | tee docs/superpowers/evals/2026-11-27-baseline-tr
 ```
 
 The eval is expected to report failures (for example `endsWithPeriod`, since the current prompt forbids a final period). That is the point of a baseline.
+
+**Regression-case rule:** `he-unsupported-name` and `he-time-of-day` exist to catch regressions, so every check *other than* `endsWithPeriod` must pass on the baseline. If one fails, the case is not guarding existing behavior: tell the user, then rewrite or drop it (fixture and its test) and commit that before Task 6.
 
 - [ ] **Step 3: Check that no key leaked into the files**
 
@@ -938,6 +947,7 @@ grep -n -E 'sk-(ant|or)-|sk-[A-Za-z0-9]{20}' docs/superpowers/evals/ || echo cle
 - Summary lines of baseline vs after eval (`grep -A20 '=== summary' docs/superpowers/evals/*-eval.txt`).
 - Done-when from the spec: every check passes on `he-legal-steps`, `he-charging-stations`, `he-podcast-dollar`, `he-unsupported-name`, `he-time-of-day` in both runs.
 - Read the English transcripts in the after file next to the baseline (no checks cover English): flag any invented detail, any translated word, a name changed, or a lost fact.
+- For each eval example, list what the output adds beyond the input (headings, details, a closing line) and flag anything that is a new number, date, time, amount or name. No automatic check covers invented details.
 - Show the user the side-by-side for each eval example and ask whether the style matches what they want. If a check fails, report it with the output; do not loosen a check to make it pass without the user agreeing.
 
 - [ ] **Step 4: Commit**
