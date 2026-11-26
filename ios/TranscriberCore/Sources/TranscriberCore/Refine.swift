@@ -27,10 +27,8 @@ public enum Refine {
     }
 
     public static func parseChips(_ content: String) throws -> [RefineChip] {
-        // Anthropic has no JSON mode, so Claude may fence the reply or add a preface.
-        guard let start = content.firstIndex(where: { $0 == "{" || $0 == "[" }),
-              let end = content.lastIndex(where: { $0 == "}" || $0 == "]" }), start < end,
-              let parsed = try? JSONSerialization.jsonObject(with: Data(content[start...end].utf8)) else {
+        guard let parsed = jsonCandidates(content).lazy
+            .compactMap({ try? JSONSerialization.jsonObject(with: Data($0.utf8)) }).first else {
             throw ServiceError("Could not parse suggestions")
         }
         let dict = parsed as? [String: Any]
@@ -42,6 +40,22 @@ public enum Refine {
             let i = "\(instruction)".trimmingCharacters(in: .whitespacesAndNewlines)
             return l.isEmpty || i.isEmpty ? nil : RefineChip(label: l, instruction: i)
         }
+    }
+
+    // Anthropic has no JSON mode, so Claude may fence the reply or wrap it in prose that has brackets of its own.
+    static func jsonCandidates(_ content: String) -> [Substring] {
+        var out: [Substring] = [Substring(content)]
+        if let open = content.range(of: "```"), let close = content.range(of: "```", range: open.upperBound..<content.endIndex) {
+            let inner = content[open.upperBound..<close.lowerBound]
+            out.append(inner.drop { $0 != "\n" && $0 != "{" && $0 != "[" })
+        }
+        let pairs: [(Character, Character)] = [("{", "}"), ("[", "]")]
+        let spans: [Substring] = pairs.compactMap { o, c in
+            guard let s = content.firstIndex(of: o), let e = content.lastIndex(of: c), s < e else { return nil }
+            return content[s...e]
+        }
+        // The bracket that opens first is the outer one, so a bare array isn't read as its first chip.
+        return out + spans.sorted { $0.startIndex < $1.startIndex }
     }
 
     public static func chips(text: String, language: Language, step: StepConfig, client: LLMClient,
