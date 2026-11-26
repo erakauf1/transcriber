@@ -3,12 +3,25 @@
 // Usage: ANTHROPIC_API_KEY=sk-ant-... RUNS=2 npm run cleanup-eval
 import { readFileSync } from 'node:fs';
 import { loadConfigFromEnv, runPipeline } from './pipeline.js';
-import { runChecks } from './cleanup-checks.js';
+import { runChecks, CHECK_NAMES } from './cleanup-checks.js';
 
-const config = loadConfigFromEnv('cleanup-eval');
 const runs = Number(process.env.RUNS || 1);
 const examples = JSON.parse(readFileSync(new URL('../fixtures/cleanup-examples.json', import.meta.url), 'utf8'))
   .filter((e) => e.role === 'eval');
+
+function fail(message) {
+  console.error(message);
+  process.exit(1);
+}
+
+if (!Number.isInteger(runs) || runs < 1) fail(`RUNS must be a whole number >= 1, got "${process.env.RUNS}"`);
+if (examples.length === 0) fail('No examples with role "eval" in fixtures/cleanup-examples.json');
+for (const ex of examples) {
+  const unknown = Object.keys(ex.checks).find((key) => !CHECK_NAMES.includes(key));
+  if (unknown) fail(`Example "${ex.name}" has unknown check "${unknown}"`);
+}
+
+const config = loadConfigFromEnv('cleanup-eval');
 
 console.log(`Provider: ${config.provider}, Model: ${config.model}, Runs: ${runs}, Examples: ${examples.length}`);
 
