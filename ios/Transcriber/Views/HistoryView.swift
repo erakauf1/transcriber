@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import TranscriberCore
 
 struct HistoryView: View {
     @Environment(HistoryLock.self) private var lock
@@ -11,11 +12,18 @@ struct HistoryView: View {
                 HistoryList()
             } else {
                 VStack(spacing: 16) {
-                    Image(systemName: "lock.fill").font(.largeTitle)
-                    Text("History is locked")
-                    if let e = lock.error { Text(e).font(.footnote).foregroundStyle(.red) }
-                    Button("Unlock") { Task { await lock.unlock() } }.buttonStyle(.borderedProminent)
+                    VStack(spacing: 12) {
+                        Image(systemName: "lock.fill").font(.largeTitle).foregroundStyle(.secondary)
+                        Text("History is locked").font(.headline)
+                        if let e = lock.error { Text(e).font(.footnote).foregroundStyle(.red) }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .card(padding: 24)
+                    Button("Unlock") { Task { await lock.unlock() } }.buttonStyle(PrimaryButtonStyle())
                 }
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(.systemGroupedBackground).ignoresSafeArea())
                 .task { await lock.unlock() }
             }
         }
@@ -42,6 +50,14 @@ private struct HistoryList: View {
         }
     }
 
+    private func dayTitle(_ title: DayTitle) -> String {
+        switch title {
+        case .today: "Today"
+        case .yesterday: "Yesterday"
+        case .date(let day): day.formatted(.dateTime.weekday(.wide).day().month())
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -51,16 +67,21 @@ private struct HistoryList: View {
                         Button("Delete unreadable notes", role: .destructive) { confirmDelete = true }
                     }
                 }
-                ForEach(notes) { note in
-                    let d = store.text(of: note)
-                    if d.readable {
-                        NavigationLink { NoteDetailView(note: d) } label: { NoteRow(note: d) }
-                    } else {
-                        NoteRow(note: d)
+                ForEach(groupByDay(notes, date: { $0.createdAt }, now: .now), id: \.start) { group in
+                    Section(dayTitle(group.title)) {
+                        ForEach(group.items) { note in
+                            let d = store.text(of: note)
+                            if d.readable {
+                                NavigationLink { NoteDetailView(note: d) } label: { NoteRow(note: d) }
+                            } else {
+                                NoteRow(note: d)
+                            }
+                        }
+                        .onDelete { $0.map { group.items[$0] }.forEach(store.delete) }
                     }
                 }
-                .onDelete { $0.map { notes[$0] }.forEach(store.delete) }
             }
+            .listStyle(.insetGrouped)
             .overlay { if notes.isEmpty { ContentUnavailableView("No notes yet", systemImage: "waveform") } }
             .task { store.refreshReadability() }
             .onChange(of: notesFingerprint) { exportURL = nil; store.removeExports() }
@@ -104,12 +125,14 @@ private struct NoteRow: View {
             Text(note.readable ? note.bestText : (note.locked ? "Locked" : "Can't be read")).lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .environment(\.layoutDirection, note.snapshot.language == .he ? .rightToLeft : .leftToRight)
-            HStack {
-                Text(note.snapshot.createdAt, format: .dateTime.day().month().hour().minute())
+            HStack(spacing: 4) {
+                Text(note.snapshot.createdAt, format: .dateTime.hour().minute())
+                if let seconds = note.snapshot.durationSeconds { Text("· \(formatDuration(seconds))") }
                 if note.snapshot.status == .transcriptionFailed { Text("· Not transcribed").foregroundStyle(.orange) }
                 if note.snapshot.status == .cleanupFailed { Text("· Raw only").foregroundStyle(.orange) }
             }
             .font(.caption).foregroundStyle(.secondary)
         }
+        .padding(.vertical, 2)
     }
 }
