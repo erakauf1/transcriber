@@ -18,6 +18,13 @@ describe('runChecks', () => {
     expect(one('great!  ', { endsWithPeriod: true }).ok).toBe(true);
   });
 
+  it('endsWithPeriod accepts a final mark followed by a closing quote or bracket', () => {
+    expect(one('הוא אמר "נדבר מחר."', { endsWithPeriod: true }).ok).toBe(true);
+    expect(one('(עד יום ראשון.)', { endsWithPeriod: true }).ok).toBe(true);
+    expect(one('wait…', { endsWithPeriod: true }).ok).toBe(true);
+    expect(one('הוא אמר "נדבר מחר"', { endsWithPeriod: true }).ok).toBe(false);
+  });
+
   it('endsWithPeriod fails without final punctuation and shows the ending', () => {
     const r = one('אני בעד', { endsWithPeriod: true });
     expect(r.ok).toBe(false);
@@ -44,6 +51,12 @@ describe('runChecks', () => {
     expect(one('שמע, זה היה פרק מצוין.', { noLeadingOpener: ['שמע'] }).ok).toBe(false);
     expect(one('  שמע זה', { noLeadingOpener: ['שמע'] }).ok).toBe(false);
     expect(one('זה היה פרק מצוין. שמע, באמת.', { noLeadingOpener: ['שמע'] }).ok).toBe(true);
+  });
+
+  it('noLeadingOpener matches whole words only', () => {
+    expect(one('שמעתי שהפרק מצוין.', { noLeadingOpener: ['שמע'] }).ok).toBe(true);
+    expect(one('looking good.', { noLeadingOpener: ['look'] }).ok).toBe(true);
+    expect(one('שמע', { noLeadingOpener: ['שמע'] }).ok).toBe(false);
   });
 
   it('a false boolean check is skipped', () => {

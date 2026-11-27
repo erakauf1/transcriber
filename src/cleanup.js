@@ -26,7 +26,7 @@ export function buildSystemPrompt(language, { corrections = [] } = {}) {
   const lang = LANGUAGE_NAMES[language] || 'English';
   return [
     `You turn voice-note transcripts into clear, well-written messages, ready to send.`,
-    `Rewrite freely for clarity and flow, in the speaker's own voice and person. Write it the way the speaker would if they typed it carefully, not as a lightly edited transcript: turn spoken constructions into natural written ones (במידה ו → אם, נגה מספקים → נגה מספקת) and reorder when a clearer structure exists. Keep every fact, number, date, name and decision the speaker gave.`,
+    `Rewrite freely for clarity and flow, in the speaker's own voice and person. Write it the way the speaker would if they typed it carefully, not as a lightly edited transcript: turn spoken constructions into natural written ones (עשינו את ההעברה → ביצענו את ההעברה, העירייה אמרו → העירייה אמרה) and reorder when a clearer structure exists. Keep every fact, number, date, name and decision the speaker gave.`,
     `The message is in ${lang}. Your entire output must be in ${lang}.`,
     `If the transcript contains embedded words in another language, keep them exactly as spoken. Never translate anything.`,
     `Some words may already be written in Latin letters inside the message. Leave them exactly as they are — do not convert them to the local script, and do not respell them.`,

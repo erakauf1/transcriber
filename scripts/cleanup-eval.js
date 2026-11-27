@@ -17,6 +17,7 @@ function fail(message) {
 if (!Number.isInteger(runs) || runs < 1) fail(`RUNS must be a whole number >= 1, got "${process.env.RUNS}"`);
 if (examples.length === 0) fail('No examples with role "eval" in fixtures/cleanup-examples.json');
 for (const ex of examples) {
+  if (!ex.checks || typeof ex.checks !== 'object') fail(`Example "${ex.name}" has no "checks" object`);
   const unknown = Object.keys(ex.checks).find((key) => !CHECK_NAMES.includes(key));
   if (unknown) fail(`Example "${ex.name}" has unknown check "${unknown}"`);
 }
@@ -34,9 +35,10 @@ for (let run = 1; run <= runs; run++) {
     console.log(`--- input ---\n${ex.input}`);
     console.log(`--- expected ---\n${ex.expected}`);
     try {
-      const { withTerms, cleaned } = await runPipeline(ex.input, { ...config, language: ex.language });
-      // A check can fail because the English-terms pass rewrote a word, not because of cleanup.
-      if (withTerms !== ex.input) console.log(`--- after english terms ---\n${withTerms}`);
+      const { corrected, withTerms, cleaned } = await runPipeline(ex.input, { ...config, language: ex.language });
+      // A check can fail because an earlier pass rewrote a word, not because of cleanup.
+      if (corrected !== ex.input) console.log(`--- after corrections ---\n${corrected}`);
+      if (withTerms !== corrected) console.log(`--- after english terms ---\n${withTerms}`);
       console.log(`--- actual ---\n${cleaned}`);
       const results = runChecks(cleaned, ex.checks);
       for (const r of results) console.log(`${r.ok ? '✓' : '✗'} ${r.name}${r.detail ? ` (${r.detail})` : ''}`);

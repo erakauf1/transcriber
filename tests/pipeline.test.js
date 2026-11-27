@@ -37,6 +37,17 @@ describe('runPipeline', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('sends the rules the note touches to the cleanup prompt', async () => {
+    const rules = [{ from: 'Jon', to: 'John', language: 'en' }];
+    const fetchMock = vi.fn().mockResolvedValueOnce(reply('I met John today.'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await runPipeline('i met Jon today', { ...opts, rules, language: 'en' });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.system).toContain('"Jon" → "John"');
+  });
+
   it('uses the language it is given instead of detecting one', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(reply('Clean.'));
     vi.stubGlobal('fetch', fetchMock);

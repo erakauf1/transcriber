@@ -3,7 +3,7 @@ const tail = (s) => JSON.stringify(s.trimEnd().slice(-20));
 const CHECKS = {
   endsWithPeriod: (out, on) => (on ? [{
     name: 'endsWithPeriod',
-    ok: /[.!?]$/.test(out.trimEnd()),
+    ok: /[.!?…]["'”’)\]״]*$/.test(out.trimEnd()),
     detail: `ends with ${tail(out)}`,
   }] : []),
   mustInclude: (out, strings) => strings.map((s) => ({
@@ -19,7 +19,8 @@ const CHECKS = {
   }] : []),
   noLeadingOpener: (out, openers) => {
     const start = out.trimStart();
-    const hit = openers.find((o) => start.startsWith(o));
+    // A whole-word match: "שמעתי" must not count as the opener "שמע".
+    const hit = openers.find((o) => start.startsWith(o) && !/[\p{L}\p{N}]/u.test(start.charAt(o.length)));
     return [{ name: `noLeadingOpener ${JSON.stringify(openers)}`, ok: !hit, detail: hit ? `starts with ${JSON.stringify(hit)}` : '' }];
   },
 };
