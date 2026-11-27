@@ -81,12 +81,14 @@ private struct HistoryList: View {
                     }
                 }
                 // A list footer scrolls with the notes; a bottom inset covered them at large Dynamic Type.
-                Section {} footer: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("History is encrypted and stays on this iPhone. It is not backed up — use Export to keep a copy.")
-                        if exportURL != nil { Text("The export is plain text once it leaves the app.").foregroundStyle(.orange) }
+                if !notes.isEmpty {
+                    Section {} footer: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("History is encrypted and stays on this iPhone. It is not backed up — use Export to keep a copy.")
+                            if exportURL != nil { Text("The export is plain text once it leaves the app.").foregroundStyle(.orange) }
+                        }
+                        .font(.caption2)
                     }
-                    .font(.caption2)
                 }
             }
             .listStyle(.insetGrouped)
@@ -134,13 +136,13 @@ private struct NoteRow: View {
     }
 
     private var durationSuffix: String {
-        note.snapshot.durationSeconds.map { " · \(formatDuration($0))" } ?? ""
+        note.snapshot.durationSeconds.map { "\u{00A0}· \(formatDuration($0))" } ?? ""
     }
 
     private var statusSuffix: Text {
         switch note.snapshot.status {
-        case .transcriptionFailed: Text(" · Not transcribed").foregroundStyle(.orange)
-        case .cleanupFailed: Text(" · Raw only").foregroundStyle(.orange)
+        case .transcriptionFailed: Text("\u{00A0}· Not transcribed").foregroundStyle(.orange)
+        case .cleanupFailed: Text("\u{00A0}· Raw only").foregroundStyle(.orange)
         default: Text("")
         }
     }
