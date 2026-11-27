@@ -15,6 +15,7 @@ struct NoteSnapshot {
     var costUsd: Double?
     var status: NoteStatus
     var pendingAudioFile: String?
+    var durationSeconds: Double? = nil
 }
 
 @MainActor @Observable
@@ -32,6 +33,8 @@ final class AppModel {
     var banner: String?
     var micDenied = false
     var toast: String?
+    private(set) var recordedDuration: TimeInterval?
+    private var copiedText: String?
 
     @ObservationIgnored var onNoteChanged: (NoteSnapshot) -> Void = { _ in }
     @ObservationIgnored var onNoteDiscarded: (UUID) -> Void = { _ in }
@@ -65,6 +68,8 @@ final class AppModel {
     }
 
     var currentText: String { state.cleanedText ?? state.rawTranscript ?? "" }
+    // Derived rather than flagged: any edit or refine changes currentText, which clears it automatically.
+    var isCopied: Bool { copiedText != nil && copiedText == currentText }
 
     private func dispatch(_ event: AppEvent) { state = reduce(state, event) }
 
@@ -90,7 +95,7 @@ final class AppModel {
     func stopRecording() { recorder.stop() }
 
     private func recordingFinished(_ url: URL, _ reason: Recorder.FinishReason) {
-        beginNote(id: UUID(), createdAt: .now, audioFile: url.lastPathComponent)
+        beginNote(id: UUID(), createdAt: .now, audioFile: url.lastPathComponent, duration: elapsed)
         saveNote()
         if reason == .interrupted {
             dispatch(.recordInterrupted(url))
@@ -109,17 +114,20 @@ final class AppModel {
     func retry(_ snapshot: NoteSnapshot) {
         guard state.phase == .idle || state.phase == .result, let file = snapshot.pendingAudioFile else { return }
         dispatch(.reset)
-        beginNote(id: snapshot.id, createdAt: snapshot.createdAt, audioFile: file)
+        beginNote(id: snapshot.id, createdAt: snapshot.createdAt, audioFile: file, duration: snapshot.durationSeconds)
         dispatch(.recordStop(AudioFiles.url(named: file)))
         runPipeline()
     }
 
-    private func beginNote(id: UUID, createdAt: Date, audioFile: String) {
+    private func beginNote(id: UUID, createdAt: Date, audioFile: String, duration: TimeInterval?) {
         cancelInFlight()
         openAIKey = settings.key(for: .openai)
         cleanupStep = settings.cleanupStep()
         cost = CostMeter(); costText = nil; chips = []; chipsError = nil; refineError = nil
-        note = NoteSnapshot(id: id, createdAt: createdAt, status: .transcriptionFailed, pendingAudioFile: audioFile)
+        recordedDuration = duration
+        copiedText = nil
+        note = NoteSnapshot(id: id, createdAt: createdAt, status: .transcriptionFailed, pendingAudioFile: audioFile,
+                            durationSeconds: duration)
     }
 
     // MARK: Pipeline
@@ -270,6 +278,7 @@ final class AppModel {
     private func writePasteboard(_ text: String) {
         UIPasteboard.general.setItems([["public.utf8-plain-text": text]], options: [.localOnly: true])
         ownPasteboardCount = UIPasteboard.general.changeCount
+        copiedText = text
     }
 
     func copyCurrent() {
@@ -310,6 +319,7 @@ final class AppModel {
         }
         dispatch(.reset)
         note = nil; chips = []; chipsError = nil; refineError = nil; costText = nil
+        recordedDuration = nil; copiedText = nil
     }
 }
 

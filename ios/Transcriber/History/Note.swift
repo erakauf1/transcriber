@@ -13,6 +13,7 @@ final class Note {
     var rawCipher: Data?
     var cleanedCipher: Data?
     var pendingAudioFile: String?
+    var durationSeconds: Double?
 
     init(id: UUID, createdAt: Date, status: String) {
         self.id = id; self.createdAt = createdAt; self.status = status
