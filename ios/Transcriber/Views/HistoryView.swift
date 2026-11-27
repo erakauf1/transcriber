@@ -80,6 +80,14 @@ private struct HistoryList: View {
                         .onDelete { $0.map { group.items[$0] }.forEach(store.delete) }
                     }
                 }
+                // A list footer scrolls with the notes; a bottom inset covered them at large Dynamic Type.
+                Section {} footer: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("History is encrypted and stays on this iPhone. It is not backed up — use Export to keep a copy.")
+                        if exportURL != nil { Text("The export is plain text once it leaves the app.").foregroundStyle(.orange) }
+                    }
+                    .font(.caption2)
+                }
             }
             .listStyle(.insetGrouped)
             .overlay { if notes.isEmpty { ContentUnavailableView("No notes yet", systemImage: "waveform") } }
@@ -106,14 +114,6 @@ private struct HistoryList: View {
                 Text("This can't be undone. Notes that can be read are kept.")
             }
             .alert("Export failed", isPresented: .constant(exportError != nil)) { Button("OK") { exportError = nil } } message: { Text(exportError ?? "") }
-            .safeAreaInset(edge: .bottom) {
-                VStack {
-                    Text("History is encrypted and stays on this iPhone. It is not backed up — use Export to keep a copy.")
-                        .font(.caption2).foregroundStyle(.secondary)
-                    if exportURL != nil { Text("The export is plain text once it leaves the app.").font(.caption2).foregroundStyle(.orange) }
-                }
-                .padding()
-            }
         }
     }
 }
@@ -125,14 +125,23 @@ private struct NoteRow: View {
             Text(note.readable ? note.bestText : (note.locked ? "Locked" : "Can't be read")).lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .environment(\.layoutDirection, note.snapshot.language == .he ? .rightToLeft : .leftToRight)
-            HStack(spacing: 4) {
-                Text(note.snapshot.createdAt, format: .dateTime.hour(.twoDigits(amPM: .abbreviated)).minute())
-                if let seconds = note.snapshot.durationSeconds { Text("· \(formatDuration(seconds))") }
-                if note.snapshot.status == .transcriptionFailed { Text("· Not transcribed").foregroundStyle(.orange) }
-                if note.snapshot.status == .cleanupFailed { Text("· Raw only").foregroundStyle(.orange) }
-            }
-            .font(.caption).foregroundStyle(.secondary)
+            // One Text, not an HStack, so it wraps instead of truncating at large Dynamic Type.
+            Text("\(note.snapshot.createdAt, format: .dateTime.hour(.twoDigits(amPM: .abbreviated)).minute())\(durationSuffix)\(statusSuffix)")
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 2)
+    }
+
+    private var durationSuffix: String {
+        note.snapshot.durationSeconds.map { " · \(formatDuration($0))" } ?? ""
+    }
+
+    private var statusSuffix: Text {
+        switch note.snapshot.status {
+        case .transcriptionFailed: Text(" · Not transcribed").foregroundStyle(.orange)
+        case .cleanupFailed: Text(" · Raw only").foregroundStyle(.orange)
+        default: Text("")
+        }
     }
 }
