@@ -5,3 +5,4 @@ ios/Transcriber.xcodeproj/
 ios/TranscriberCore/.build/
 ios/TranscriberCore/.swiftpm/
 ios/build/
+.superpowers/

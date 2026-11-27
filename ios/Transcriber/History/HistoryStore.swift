@@ -173,6 +173,7 @@ final class HistoryStore {
         note.model = s.model
         note.costUsd = s.costUsd
         note.pendingAudioFile = s.pendingAudioFile
+        note.durationSeconds = s.durationSeconds
         note.rawCipher = rawCipher
         note.cleanedCipher = cleanedCipher
         do {
@@ -229,7 +230,7 @@ final class HistoryStore {
                                     language: note.language.flatMap(Language.init(rawValue:)),
                                     provider: note.provider.flatMap(Provider.init(rawValue:)), model: note.model,
                                     costUsd: note.costUsd, status: NoteStatus(rawValue: note.status) ?? .done,
-                                    pendingAudioFile: note.pendingAudioFile)
+                                    pendingAudioFile: note.pendingAudioFile, durationSeconds: note.durationSeconds)
         return DecryptedNote(raw: raw, cleaned: cleaned, readable: readable, snapshot: snapshot, locked: locked && !readable)
     }
 

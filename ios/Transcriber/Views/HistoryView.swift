@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import TranscriberCore
 
 struct HistoryView: View {
     @Environment(HistoryLock.self) private var lock
@@ -11,11 +12,18 @@ struct HistoryView: View {
                 HistoryList()
             } else {
                 VStack(spacing: 16) {
-                    Image(systemName: "lock.fill").font(.largeTitle)
-                    Text("History is locked")
-                    if let e = lock.error { Text(e).font(.footnote).foregroundStyle(.red) }
-                    Button("Unlock") { Task { await lock.unlock() } }.buttonStyle(.borderedProminent)
+                    VStack(spacing: 12) {
+                        Image(systemName: "lock.fill").font(.largeTitle).foregroundStyle(.secondary)
+                        Text("History is locked").font(.headline)
+                        if let e = lock.error { Text(e).font(.footnote).foregroundStyle(.red) }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .card(padding: 24)
+                    Button("Unlock") { Task { await lock.unlock() } }.buttonStyle(PrimaryButtonStyle())
                 }
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(.systemGroupedBackground).ignoresSafeArea())
                 .task { await lock.unlock() }
             }
         }
@@ -42,6 +50,14 @@ private struct HistoryList: View {
         }
     }
 
+    private func dayTitle(_ title: DayTitle) -> String {
+        switch title {
+        case .today: "Today"
+        case .yesterday: "Yesterday"
+        case .date(let day): day.formatted(.dateTime.weekday(.wide).day().month())
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -51,16 +67,31 @@ private struct HistoryList: View {
                         Button("Delete unreadable notes", role: .destructive) { confirmDelete = true }
                     }
                 }
-                ForEach(notes) { note in
-                    let d = store.text(of: note)
-                    if d.readable {
-                        NavigationLink { NoteDetailView(note: d) } label: { NoteRow(note: d) }
-                    } else {
-                        NoteRow(note: d)
+                ForEach(groupByDay(notes, date: { $0.createdAt }, now: .now), id: \.start) { group in
+                    Section(dayTitle(group.title)) {
+                        ForEach(group.items) { note in
+                            let d = store.text(of: note)
+                            if d.readable {
+                                NavigationLink { NoteDetailView(note: d) } label: { NoteRow(note: d) }
+                            } else {
+                                NoteRow(note: d)
+                            }
+                        }
+                        .onDelete { $0.map { group.items[$0] }.forEach(store.delete) }
                     }
                 }
-                .onDelete { $0.map { notes[$0] }.forEach(store.delete) }
+                // A list footer scrolls with the notes; a bottom inset covered them at large Dynamic Type.
+                if !notes.isEmpty {
+                    Section {} footer: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("History is encrypted and stays on this iPhone. It is not backed up — use Export to keep a copy.")
+                            if exportURL != nil { Text("The export is plain text once it leaves the app.").foregroundStyle(.orange) }
+                        }
+                        .font(.caption2)
+                    }
+                }
             }
+            .listStyle(.insetGrouped)
             .overlay { if notes.isEmpty { ContentUnavailableView("No notes yet", systemImage: "waveform") } }
             .task { store.refreshReadability() }
             .onChange(of: notesFingerprint) { exportURL = nil; store.removeExports() }
@@ -85,14 +116,6 @@ private struct HistoryList: View {
                 Text("This can't be undone. Notes that can be read are kept.")
             }
             .alert("Export failed", isPresented: .constant(exportError != nil)) { Button("OK") { exportError = nil } } message: { Text(exportError ?? "") }
-            .safeAreaInset(edge: .bottom) {
-                VStack {
-                    Text("History is encrypted and stays on this iPhone. It is not backed up — use Export to keep a copy.")
-                        .font(.caption2).foregroundStyle(.secondary)
-                    if exportURL != nil { Text("The export is plain text once it leaves the app.").font(.caption2).foregroundStyle(.orange) }
-                }
-                .padding()
-            }
         }
     }
 }
@@ -104,12 +127,23 @@ private struct NoteRow: View {
             Text(note.readable ? note.bestText : (note.locked ? "Locked" : "Can't be read")).lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .environment(\.layoutDirection, note.snapshot.language == .he ? .rightToLeft : .leftToRight)
-            HStack {
-                Text(note.snapshot.createdAt, format: .dateTime.day().month().hour().minute())
-                if note.snapshot.status == .transcriptionFailed { Text("· Not transcribed").foregroundStyle(.orange) }
-                if note.snapshot.status == .cleanupFailed { Text("· Raw only").foregroundStyle(.orange) }
-            }
-            .font(.caption).foregroundStyle(.secondary)
+            // One Text, not an HStack, so it wraps instead of truncating at large Dynamic Type.
+            Text("\(note.snapshot.createdAt, format: .dateTime.hour(.twoDigits(amPM: .abbreviated)).minute())\(durationSuffix)\(statusSuffix)")
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var durationSuffix: String {
+        note.snapshot.durationSeconds.map { "\u{00A0}· \(formatDuration($0))" } ?? ""
+    }
+
+    private var statusSuffix: Text {
+        switch note.snapshot.status {
+        case .transcriptionFailed: Text("\u{00A0}· Not transcribed").foregroundStyle(.orange)
+        case .cleanupFailed: Text("\u{00A0}· Raw only").foregroundStyle(.orange)
+        default: Text("")
         }
     }
 }
