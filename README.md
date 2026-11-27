@@ -41,6 +41,7 @@ npm test          # run tests
 npm run build     # production build → dist/
 ANTHROPIC_API_KEY=... npm run prompt-check                                     # eyeball cleanup on fixtures
 ANTHROPIC_API_KEY=... CORRECTIONS=fixtures/corrections.json npm run prompt-check  # …with learned fixes
+ANTHROPIC_API_KEY=... RUNS=2 npm run cleanup-eval                               # cleanup vs expected, with checks
 ```
 
 Deploy to Netlify:

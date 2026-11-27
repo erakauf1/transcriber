@@ -41,14 +41,28 @@ describe('buildSystemPrompt', () => {
     expect(p).not.toContain('transliterates');
   });
 
-  it('protects names of people and places from script changes', () => {
-    expect(buildSystemPrompt('he')).toContain('Never change a name of a person or place');
+  it('keeps names as spoken, allowing only a form found in the same message', () => {
+    const p = buildSystemPrompt('he');
+    expect(p).toContain('Keep names of people and places exactly as spoken');
+    expect(p).toContain('when the same message spells a name differently elsewhere');
   });
 
-  it('forbids substituting a different name (guards against hallucinated corrections)', () => {
+  it('forbids changing a name to one not in the message (guards against hallucinated corrections)', () => {
     const p = buildSystemPrompt('he');
-    expect(p).toContain('never to a different name');
+    expect(p).toContain('Never change a name to one that does not appear in the message');
     expect(p).toContain('A wrong name is worse than an awkward one');
+  });
+
+  it('asks for punctuation at the end of the message', () => {
+    const p = buildSystemPrompt('he');
+    expect(p).toContain('End every sentence with punctuation, including the last one');
+    expect(p).not.toContain("Don't add a period");
+  });
+
+  it('allows contextual additions but forbids inventing numbers, dates, times, amounts or names', () => {
+    const p = buildSystemPrompt('he');
+    expect(p).toContain('a small detail the context makes obvious');
+    expect(p).toContain("Don't add numbers, dates, times, amounts, names of people, places or companies");
   });
 
   it('calls out prepositions and date expressions in the grammar rule', () => {
@@ -61,6 +75,14 @@ describe('buildSystemPrompt', () => {
     const p = buildSystemPrompt('he');
     expect(p).toContain('24-hour clock');
     expect(p).toContain('"18:30"');
+  });
+
+  it('keeps a bare clock time as spoken when no part of day is said', () => {
+    expect(buildSystemPrompt('en')).toContain('stays 7:30, even next to a dinner or a restaurant');
+  });
+
+  it('forbids swapping a real word for a likelier one', () => {
+    expect(buildSystemPrompt('he')).toContain('Never swap a real word for a different word');
   });
 
   it('unknown language falls back to English', () => {
@@ -110,7 +132,7 @@ describe('cleanup', () => {
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     const fewShot = body.messages.slice(0, -1);
-    expect(fewShot.every((m) => /^[\x00-\x7F\s.,'-]*$/.test(m.content))).toBe(true);
+    expect(fewShot.every((m) => !/[֐-׿]/.test(m.content))).toBe(true);
     expect(fewShot.some((m) => m.content.includes('Raanana'))).toBe(true);
   });
 
