@@ -53,6 +53,17 @@ private struct StepRow: View {
             Spacer()
         }
         .padding(.vertical, 12)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(stateDescription)
+    }
+
+    private var stateDescription: String {
+        switch state {
+        case .done: "Done"
+        case .active: "In progress"
+        case .pending: "Pending"
+        case .failed: "Failed"
+        }
     }
 
     @ViewBuilder private var icon: some View {

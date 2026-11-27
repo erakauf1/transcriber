@@ -15,7 +15,7 @@ struct ResultView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             MetaRow(leading: Text(headerText),
-                    trailing: model.isCopied ? Text("✓ Copied").foregroundStyle(.green) : Text(""))
+                    trailing: model.isCopied && !(editing && draft != model.currentText) ? Text("✓ Copied").foregroundStyle(.green) : Text(""))
             if let error = model.state.error {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Cleanup failed — showing the raw transcript. \(error)").font(.footnote)
@@ -30,6 +30,7 @@ struct ResultView: View {
                 .lineLimit(2...14)
                 .font(.body)
                 .focused($editing)
+                .accessibilityLabel("Note text")
                 .environment(\.layoutDirection, direction)
                 .card()
             MetaRow(leading: Text("Tap text to edit"), trailing: Text(model.costText ?? ""))

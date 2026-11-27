@@ -7,6 +7,7 @@ struct RecordingView: View {
         VStack(spacing: 20) {
             Spacer()
             Text("● REC").font(.caption.weight(.semibold)).foregroundStyle(.red)
+                .accessibilityLabel("Recording")
             Text(formatDuration(model.elapsed))
                 .font(.system(size: 44, weight: .light)).monospacedDigit()
             HStack(alignment: .center, spacing: 3) {
@@ -15,6 +16,7 @@ struct RecordingView: View {
                 }
             }
             .frame(height: 70)
+            .accessibilityHidden(true)
             .foregroundStyle(model.silentStyle ? Color.secondary : Color.accentColor)
             Text("\(formatDuration(max(0, Recorder.maxDuration - model.elapsed))) left")
                 .font(.footnote).foregroundStyle(.secondary).monospacedDigit()
