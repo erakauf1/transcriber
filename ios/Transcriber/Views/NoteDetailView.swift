@@ -7,7 +7,7 @@ struct NoteDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     private var meta: String {
-        var parts = [note.snapshot.createdAt.formatted(.dateTime.day().month().hour().minute())]
+        var parts = [note.snapshot.createdAt.formatted(.dateTime.day().month().hour(.twoDigits(amPM: .abbreviated)).minute())]
         if let seconds = note.snapshot.durationSeconds { parts.append(formatDuration(seconds)) }
         if let cost = note.snapshot.costUsd { parts.append(Pricing.format(cost)) }
         return parts.joined(separator: " · ")

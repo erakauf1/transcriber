@@ -126,7 +126,7 @@ private struct NoteRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .environment(\.layoutDirection, note.snapshot.language == .he ? .rightToLeft : .leftToRight)
             HStack(spacing: 4) {
-                Text(note.snapshot.createdAt, format: .dateTime.hour().minute())
+                Text(note.snapshot.createdAt, format: .dateTime.hour(.twoDigits(amPM: .abbreviated)).minute())
                 if let seconds = note.snapshot.durationSeconds { Text("· \(formatDuration(seconds))") }
                 if note.snapshot.status == .transcriptionFailed { Text("· Not transcribed").foregroundStyle(.orange) }
                 if note.snapshot.status == .cleanupFailed { Text("· Raw only").foregroundStyle(.orange) }
