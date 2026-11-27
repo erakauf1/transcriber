@@ -34,6 +34,7 @@ final class AppModel {
     var micDenied = false
     var toast: String?
     private(set) var recordedDuration: TimeInterval?
+    private(set) var recordedAt: Date?
     private var copiedText: String?
 
     @ObservationIgnored var onNoteChanged: (NoteSnapshot) -> Void = { _ in }
@@ -124,7 +125,7 @@ final class AppModel {
         openAIKey = settings.key(for: .openai)
         cleanupStep = settings.cleanupStep()
         cost = CostMeter(); costText = nil; chips = []; chipsError = nil; refineError = nil
-        recordedDuration = duration
+        recordedDuration = duration; recordedAt = createdAt
         copiedText = nil
         note = NoteSnapshot(id: id, createdAt: createdAt, status: .transcriptionFailed, pendingAudioFile: audioFile,
                             durationSeconds: duration)
@@ -319,7 +320,7 @@ final class AppModel {
         }
         dispatch(.reset)
         note = nil; chips = []; chipsError = nil; refineError = nil; costText = nil
-        recordedDuration = nil; copiedText = nil
+        recordedDuration = nil; recordedAt = nil; copiedText = nil
     }
 }
 

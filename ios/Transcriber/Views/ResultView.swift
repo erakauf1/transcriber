@@ -9,7 +9,15 @@ struct ResultView: View {
     private var direction: LayoutDirection { model.state.language == .he ? .rightToLeft : .leftToRight }
 
     private var headerText: String {
-        model.recordedDuration.map { "Just now · \(formatDuration($0))" } ?? "Just now"
+        var parts = [whenText]
+        if let seconds = model.recordedDuration { parts.append(formatDuration(seconds)) }
+        return parts.joined(separator: " · ")
+    }
+
+    // A retry from History can reopen a note recorded days ago, so only a fresh one is "Just now".
+    private var whenText: String {
+        guard let date = model.recordedAt, Date.now.timeIntervalSince(date) > 120 else { return "Just now" }
+        return date.formatted(.dateTime.day().month().hour(.twoDigits(amPM: .abbreviated)).minute())
     }
 
     var body: some View {
