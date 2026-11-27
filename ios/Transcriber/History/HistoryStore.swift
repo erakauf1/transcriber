@@ -15,7 +15,7 @@ struct DecryptedNote {
     var bestText: String { cleaned ?? raw ?? "" }
 }
 
-private let log = Logger(subsystem: "com.example.transcriber", category: "history")
+private let log = Logger(subsystem: "com.erankaufman.transcriber", category: "history")
 
 @MainActor @Observable
 final class HistoryStore {

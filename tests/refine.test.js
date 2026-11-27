@@ -19,6 +19,30 @@ describe('generateRefinementChips', () => {
     expect(result).toEqual(chips);
   });
 
+  it('tolerates a fenced Claude reply', async () => {
+    const text = '```json\n{"chips":[{"label":"קצר","instruction":"Make shorter"}]}\n```';
+    vi.stubGlobal('fetch', vi.fn(async () => okResponse({ content: [{ type: 'text', text }] })));
+
+    const result = await generateRefinementChips('text', 'he', { provider: 'anthropic', model: 'claude-opus-5-5', apiKey: 'k' });
+    expect(result).toEqual([{ label: 'קצר', instruction: 'Make shorter' }]);
+  });
+
+  it('ignores stray brackets around the JSON', async () => {
+    const text = '4 options [JSON]:\n```json\n{"chips":[{"label":"a","instruction":"b"}]}\n```\n(see [1])';
+    vi.stubGlobal('fetch', vi.fn(async () => okResponse({ content: [{ type: 'text', text }] })));
+
+    const result = await generateRefinementChips('text', 'en', { provider: 'anthropic', model: 'claude-opus-5-5', apiKey: 'k' });
+    expect(result).toEqual([{ label: 'a', instruction: 'b' }]);
+  });
+
+  it('reads a prefaced bare array as the whole list', async () => {
+    const text = 'Here you go:\n[{"label":"a","instruction":"b"},{"label":"c","instruction":"d"}]';
+    vi.stubGlobal('fetch', vi.fn(async () => okResponse({ content: [{ type: 'text', text }] })));
+
+    const result = await generateRefinementChips('text', 'en', { provider: 'anthropic', model: 'claude-opus-5-5', apiKey: 'k' });
+    expect(result).toHaveLength(2);
+  });
+
   it('caps results at 4 chips', async () => {
     const chips = Array.from({ length: 6 }, (_, i) => ({
       label: `Option ${i}`,

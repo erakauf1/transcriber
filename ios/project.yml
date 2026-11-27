@@ -1,14 +1,14 @@
 name: Transcriber
 options:
-  bundleIdPrefix: com.example
+  bundleIdPrefix: com.erankaufman
   deploymentTarget:
     iOS: "26.0"
 settings:
   base:
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "1"
-    DEVELOPMENT_TEAM: ""
+    CURRENT_PROJECT_VERSION: "4"
+    DEVELOPMENT_TEAM: DHSWZ6F8C2
 packages:
   TranscriberCore:
     path: TranscriberCore
@@ -21,7 +21,7 @@ targets:
       - package: TranscriberCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.transcriber
+        PRODUCT_BUNDLE_IDENTIFIER: com.erankaufman.transcriber
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
