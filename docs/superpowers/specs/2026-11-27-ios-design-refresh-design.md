@@ -33,7 +33,7 @@ All colors are semantic, so dark mode works without extra code.
 | Page background | `Color(.systemGroupedBackground)`, applied once in `ContentView` with `.ignoresSafeArea()` |
 | `CardBackground` modifier (`.card()`) | padding 14, `Color(.secondarySystemGroupedBackground)`, `RoundedRectangle(cornerRadius: 14, style: .continuous)` |
 | `PrimaryButtonStyle` | full width, 15pt semibold white label, `Color.accentColor` fill, corner 13, min height 48, 0.6 opacity when pressed or disabled |
-| `IconButtonStyle` | 44×44, card background, corner 13, accent-colored SF Symbol |
+| `IconButtonStyle` | 48×48 (matches the primary button height), card background, corner 13, accent-colored SF Symbol |
 | `ChipButtonStyle` | capsule, 12–13pt label, accent text, card background, 1pt `Color(.separator)` stroke, 0.4 opacity when disabled |
 | `MetaRow(leading:trailing:)` | `HStack` of two `Text`s, `.caption2`, `.secondary`, `Spacer` between |
 
@@ -72,7 +72,7 @@ Top to bottom:
 1. `MetaRow`: leading "Just now · m:ss" (duration omitted if unknown), trailing "✓ Copied" in green when `model.isCopied`.
 2. Cleanup-failed banner (only when `state.error != nil`): an orange-tinted card with the message and a "Retry cleanup" button.
 3. Text card: replace `TextEditor` with `TextField("", text: $draft, axis: .vertical)` and `.lineLimit(2...14)` inside `.card()`, 17pt body. It grows with the text and scrolls past 14 lines, so a short note gets a short card. Layout direction follows the note's language (unchanged).
-4. `MetaRow`: leading "Tap text to edit", trailing the cost text.
+4. `MetaRow`: leading "Tap text to edit", trailing the existing cost text ("Estimated cost: $0.017").
 5. Refining progress and refine/chip errors (unchanged content, `.footnote`).
 6. Chips: horizontal `ScrollView` with `.environment(\.layoutDirection, language == .he ? .rightToLeft : .leftToRight)` on the scroll view, so Hebrew chips start at the right edge. `ChipButtonStyle`.
 7. `Spacer`, then the bottom bar: `ShareLink` in `IconButtonStyle` (`square.and.arrow.up`), **Copy** in `PrimaryButtonStyle` (label "Copy", or "Copy again" when `isCopied`), New note in `IconButtonStyle` (`plus`, label "New note").
@@ -91,7 +91,7 @@ Title and explanation in a card. "Transcribe it" in `PrimaryButtonStyle`, "Disca
 
 ### Note detail and Settings
 
-Note detail: the text in a `.card()` on the grouped background, meta row (date · duration · cost) above. Settings: stays a `Form`, with spacing and footer-copy pass only.
+Note detail: the text in a `.card()` on the grouped background, meta row (date · duration · cost) above. Settings: unchanged. It is already a grouped `Form`, which matches Direction A.
 
 ## Data and model changes
 
@@ -99,8 +99,8 @@ Note detail: the text in a `.card()` on the grouped background, meta row (date �
 - `NoteSnapshot` and the `HistoryStore` save path carry `durationSeconds`.
 - `AppModel`:
   - `recordedDuration: TimeInterval?`, set from `elapsed` when recording stops (and for the interrupted path), stored in the snapshot, reset in `reset()`. When History retries an old note, it is loaded from that note.
-  - `isCopied: Bool`, true right after the app writes `currentText` to the pasteboard (auto-copy or Copy button). It becomes false when `currentText` changes (edit, refine) and in `reset()`.
-- `TranscriberCore/HistoryGrouping.swift` (pure): `func groupByDay<T>(_ items: [T], date: (T) -> Date, now: Date, calendar: Calendar) -> [(title: DayTitle, items: [T])]`, where `DayTitle` is `.today`, `.yesterday` or `.date(Date)`. It keeps input order and groups adjacent days. The view maps `DayTitle` to a string.
+  - `isCopied: Bool`, derived as "the last text the app wrote to the pasteboard equals `currentText`". An edit or refine changes `currentText`, so it clears by itself; `reset()` clears the stored text.
+- `TranscriberCore/HistoryGrouping.swift` (pure): `func groupByDay<Item>(_ items: [Item], date: (Item) -> Date, now: Date, calendar: Calendar = .current) -> [DayGroup<Item>]`, where `DayGroup` has `start` (start of day), `title` and `items`,, where `DayTitle` is `.today`, `.yesterday` or `.date(Date)`. It keeps input order and groups adjacent days. The view maps `DayTitle` to a string.
 
 ## Testing
 
