@@ -17,13 +17,15 @@ struct ContentView: View {
                 }
             }
             .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .toolbar {
                 if model.state.phase == .idle {
                     ToolbarItem(placement: .topBarLeading) {
                         Button("History", systemImage: "clock") { showHistory = true }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("Settings", systemImage: "gear") { showSettings = true }
+                        Button("Settings", systemImage: "gearshape") { showSettings = true }
                     }
                 }
             }
@@ -46,10 +48,18 @@ private struct InterruptedView: View {
     @Environment(AppModel.self) private var model
     var body: some View {
         VStack(spacing: 16) {
-            Text("Recording was interrupted").font(.headline)
-            Text("The audio up to the interruption was kept.").foregroundStyle(.secondary)
-            Button("Transcribe it") { model.transcribeInterrupted() }.buttonStyle(.borderedProminent)
+            Spacer()
+            VStack(spacing: 8) {
+                Image(systemName: "pause.circle.fill").font(.largeTitle).foregroundStyle(.orange)
+                Text("Recording was interrupted").font(.headline)
+                Text("The audio up to the interruption was kept.")
+                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .card(padding: 20)
+            Button("Transcribe it") { model.transcribeInterrupted() }.buttonStyle(PrimaryButtonStyle())
             Button("Discard", role: .destructive) { model.reset() }
+            Spacer()
         }
     }
 }
