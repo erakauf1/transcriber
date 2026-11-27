@@ -77,6 +77,14 @@ describe('buildSystemPrompt', () => {
     expect(p).toContain('"18:30"');
   });
 
+  it('keeps a bare clock time as spoken when no part of day is said', () => {
+    expect(buildSystemPrompt('en')).toContain('stays 7:30, even next to a dinner or a restaurant');
+  });
+
+  it('forbids swapping a real word for a likelier one', () => {
+    expect(buildSystemPrompt('he')).toContain('Never swap a real word for a different word');
+  });
+
   it('unknown language falls back to English', () => {
     expect(buildSystemPrompt('xx')).toContain('The message is in English');
   });
